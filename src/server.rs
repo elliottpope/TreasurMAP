@@ -190,7 +190,7 @@ impl IMAPServer {
 mod tests {
     use super::{IMAPServer, ServerConfiguration};
     use crate::handler::HandleRequest;
-    use crate::parser::IMAPError;
+    use crate::error::IMAPError;
     use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Write};
     use std::net::TcpStream;
     use std::panic::panic_any;
