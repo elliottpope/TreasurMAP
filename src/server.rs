@@ -1,4 +1,5 @@
-use crate::handler::HandleRequest;
+use crate::requests::HandleRequest;
+
 use log::{debug, error, info, trace, warn};
 use std::convert::TryInto;
 use std::io::ErrorKind::WouldBlock;
@@ -189,7 +190,7 @@ impl IMAPServer {
 #[cfg(test)]
 mod tests {
     use super::{IMAPServer, ServerConfiguration};
-    use crate::handler::HandleRequest;
+    use crate::requests::HandleRequest;
     use crate::error::IMAPError;
     use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Write};
     use std::net::TcpStream;

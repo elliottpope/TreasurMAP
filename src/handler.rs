@@ -1,13 +1,7 @@
-use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Write};
 use std::str::from_utf8;
 
-use log::{debug, error};
-
-use crate::auth::{Authenticator, BasicAuthenticator};
-use crate::error::IMAPError;
-use crate::parser::{Command, CompletionStatus, Parser, Response};
+use crate::auth::{Authenticator, BasicAuth, BasicAuthenticator};
+use crate::parser::{Command, CompletionStatus, Response};
 
 // const NOOP: &[u8] = b"noop" ;
 
@@ -22,8 +16,10 @@ use crate::parser::{Command, CompletionStatus, Parser, Response};
 // const DELETE: &[u8] = b"delete" ;
 // const RENAME: &[u8] = b"rename" ;
 
-struct LoginHandler {}
-struct CapabilityHandler {}
+pub struct LoginHandler {
+    pub _authenticator: BasicAuthenticator,
+}
+pub struct CapabilityHandler {}
 struct NoopHandler {}
 struct LogoutHandler {}
 struct StartTLSHandler {}
@@ -83,10 +79,6 @@ pub trait Handle: Send + Sync {
     }
 }
 
-pub trait HandleRequest {
-    fn handle<R: Read, W: Write>(&self, input: R, output: W) -> Result<(), IMAPError>;
-}
-
 impl Handle for UnknownCommandHandler {
     fn handle(&self, command: Command) -> Vec<Response> {
         let tag = String::from(from_utf8(&command.tag).unwrap_or_default());
@@ -110,11 +102,7 @@ impl Handle for LoginHandler {
                 ),
             )]);
         }
-        let authenticator = BasicAuthenticator::new(
-            String::from(from_utf8(&command.args[0]).unwrap_or_default()),
-            String::from(from_utf8(&command.args[1]).unwrap_or_default()),
-        );
-        let response = match authenticator.authenticate() {
+        let response = match self._authenticator.authenticate(BasicAuth::from(&command.args[0], &command.args[1])) {
             Some(_) => {
                 // TODO: store returned User object into session context
                 let tag = String::from(from_utf8(&command.tag).unwrap_or_default());
@@ -138,101 +126,28 @@ impl Handle for CapabilityHandler {
                 String::default(),
                 String::from("CAPABILITY IMAP4rev1"),
             ),
-            Response::new(
+            Response::from(
                 CompletionStatus::OK,
-                String::from(from_utf8(&command.tag).unwrap_or_default()),
-                String::from("CAPABILITY completed"),
+                &command.tag,
+                "CAPABILITY completed",
             ),
         ])
     }
 }
 
-pub struct RequestHandler {
-    _buffer_size: u64,
-    _parser: Parser,
-    _delegates: HashMap<String, Box<dyn Handle>>,
-    _default_handler: Box<dyn Handle>,
-}
-
-impl RequestHandler {
-    pub fn new(buffer_size: u64, parser: Parser) -> RequestHandler {
-        let mut handlers: HashMap<String, Box<dyn Handle>> = HashMap::new();
-        handlers.insert(String::from("capability"), Box::new(CapabilityHandler {}));
-        handlers.insert(String::from("login"), Box::new(LoginHandler {}));
-        return RequestHandler {
-            _buffer_size: buffer_size,
-            _parser: parser,
-            _delegates: handlers,
-            _default_handler: Box::new(UnknownCommandHandler {}),
-        };
-    }
-}
-
-impl HandleRequest for RequestHandler {
-    fn handle<R: Read, W: Write>(&self, mut input: R, mut output: W) -> Result<(), IMAPError> {
-        let buffer_size_usize: usize =
-            usize::try_from(self._buffer_size).expect("Cannot convert buffer size to usize");
-
-        let mut buf: Vec<u8> = Vec::with_capacity(buffer_size_usize);
-
-        match BufReader::new(input.by_ref())
-            .take(self._buffer_size)
-            .read_until(b'\n', &mut buf)
-        {
-            Ok(read) => {
-                debug!("Read {} bytes from source for parsing", read);
-                if read == 0 {
-                    return Err(IMAPError::new(Vec::new(),
-                    Error::new(ErrorKind::ConnectionAborted, "Empty read indicates stream has been closed by client. Server side stream must also be closed.")
-                    ));
-                }
-            }
-            Err(e) => {
-                let wrapper = IMAPError::new(Vec::new(), e);
-                if wrapper.can_ignore() {
-                    return Err(wrapper);
-                }
-                error!("Encountered an error reading from source.");
-                return Err(wrapper);
-            }
-        };
-        let command = match self._parser.parse(buf) {
-            Ok(cmd) => cmd,
-            Err(e) => {
-                if e.should_panic() {
-                    return Err(e);
-                }
-                if e.can_ignore() {
-                    return Err(e);
-                }
-                error!("Could not parse input due to {}", e);
-                Command {
-                    tag: e.tag,
-                    command: String::default(),
-                    args: Vec::new(),
-                }
-            }
-        };
-        match self._delegates.get(&command.command) {
-            Some(handler) => handler.handle(command),
-            None => self._default_handler.handle(command),
-        }
-        .iter()
-        .for_each(|response| response.respond(&mut output));
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{CapabilityHandler, Handle, HandleRequest, LoginHandler, RequestHandler};
-    use crate::parser::{Command, Parser};
+    use super::{CapabilityHandler, Handle, LoginHandler};
+    use crate::parser::{Command};
+    use crate::auth::{BasicAuthenticator, InMemoryUserStore};
     use std::str::from_utf8;
     use std::vec::Vec;
 
     #[test]
     fn test_handler_can_login_success() {
-        let handler = LoginHandler {};
+        let handler = LoginHandler {
+            _authenticator: BasicAuthenticator::new(InMemoryUserStore::new().with_user(String::from("test"), String::from("test")))
+        };
         let command = Command {
             tag: Vec::from(b"tag1" as &[u8]),
             command: String::from("login"),
@@ -249,38 +164,6 @@ mod tests {
         assert_eq!(
             from_utf8(output.as_ref()).unwrap(),
             "tag1 OK LOGIN completed.\n"
-        );
-    }
-    #[test]
-    fn test_request_handler_handles_unknown_tag() {
-        let handler = RequestHandler::new(128, Parser::new());
-        let mut input = b"tag1 command arg1 arg2" as &[u8];
-        let mut output: Vec<u8> = Vec::with_capacity(128);
-
-        handler
-            .handle(&mut input, &mut output)
-            .expect("Input stream was closed unexpectedly");
-
-        assert_eq!(
-            from_utf8(output.as_ref()).unwrap(),
-            "tag1 BAD Command 'command' unknown\n"
-        );
-    }
-
-    #[test]
-    fn test_handle_buffer_overflow() {
-        let handler = RequestHandler::new(16, Parser::new());
-
-        let mut input = b"thisstringofbytesistoolong" as &[u8];
-        let mut output: Vec<u8> = Vec::with_capacity(128);
-
-        handler
-            .handle(&mut input, &mut output)
-            .expect("Input stream was closed unexpectedly");
-
-        assert_eq!(
-            from_utf8(output.as_ref()).unwrap(),
-            "thisstringofbyte BAD Command '' unknown\n"
         );
     }
 
@@ -309,7 +192,9 @@ mod tests {
 
     #[test]
     fn test_can_login_successfully() {
-        let handler = LoginHandler {};
+        let handler = LoginHandler {
+            _authenticator: BasicAuthenticator::new(InMemoryUserStore::new().with_user(String::from("test"), String::from("test")))
+        };
 
         let command = Command {
             tag: Vec::from(b"tag1" as &[u8]),
@@ -332,7 +217,9 @@ mod tests {
 
     #[test]
     fn test_login_no_password_provided_fails() {
-        let handler = LoginHandler {};
+        let handler = LoginHandler {
+            _authenticator: BasicAuthenticator::new(InMemoryUserStore::new().with_user(String::from("test"), String::from("test")))
+        };
 
         let command = Command {
             tag: Vec::from(b"tag1" as &[u8]),
@@ -355,12 +242,17 @@ mod tests {
 
     #[test]
     fn test_login_authentication_fails() {
-        let handler = LoginHandler {};
+        let handler = LoginHandler {
+            _authenticator: BasicAuthenticator::new(InMemoryUserStore::new().with_user(String::from("test"), String::from("test")))
+        };
 
         let command = Command {
             tag: Vec::from(b"tag1" as &[u8]),
             command: String::from("login"),
-            args: Vec::from([Vec::from(b"test" as &[u8]), Vec::from(b"badpassword" as &[u8])]),
+            args: Vec::from([
+                Vec::from(b"test" as &[u8]),
+                Vec::from(b"badpassword" as &[u8]),
+            ]),
         };
 
         let responses = handler.handle(command);
@@ -375,5 +267,4 @@ mod tests {
             "tag1 NO LOGIN failed.\n"
         );
     }
-
 }

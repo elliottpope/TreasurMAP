@@ -27,6 +27,13 @@ impl Response {
             response: response,
         };
     }
+    pub fn from(status: CompletionStatus, tag: &[u8], response: &str) -> Response {
+        return Response {
+            status: status,
+            tag: String::from(from_utf8(tag).unwrap_or_default()),
+            response: String::from(response),
+        };
+    }
 }
 
 pub enum CompletionStatus {
@@ -56,7 +63,6 @@ impl Response {
         output
             .write(response_string.as_ref())
             .expect("Unable to write response");
-        // output.flush().expect("Unable to write response");
     }
 }
 
@@ -67,8 +73,28 @@ impl Parser {
 
     pub fn parse(&self, input: Vec<u8>) -> std::result::Result<Command, IMAPError> {
         let mut split_input = input.split(|b| b == &b' ').filter(|b| b.len() > 0);
-        let input_tag = Vec::from(match split_input.next() {
-            Some(bytes) => bytes,
+        let input_tag = match self.get_tag(split_input.next()) {
+            Ok(tag) => tag,
+            Err(e) => return Err(e),
+        };
+        let input_command = match self.get_command(&input_tag, split_input.next()) {
+            Ok(command) => command,
+            Err(e) => return Err(e),
+        };
+        let input_args = match self.get_args(&input_tag, split_input) {
+            Ok(args) => args,
+            Err(e) => return Err(e),
+        };
+        return Ok(Command {
+            tag: Vec::from(input_tag.as_bytes()),
+            command: input_command,
+            args: input_args.iter().map(|string| Vec::from(string.as_bytes())).collect(),
+        });
+    }
+
+    fn get_tag(&self, bytes: Option<&[u8]>) -> Result<String, IMAPError> {
+        let tag = String::from_utf8(match bytes {
+            Some(bytes) => bytes.to_vec(),
             None => {
                 return Err(IMAPError::new(
                     Vec::new(),
@@ -79,41 +105,76 @@ impl Parser {
                 ))
             }
         });
-        let input_command = match split_input.next() {
-            Some(bytes) => String::from(match from_utf8(bytes) {
-                Ok(s) => s,
+        match tag {
+            Ok(tag) => Ok(tag),
+            Err(_) => {
+                return Err(IMAPError::new(
+                    Vec::new(),
+                    Error::new(
+                        ErrorKind::InvalidInput,
+                        "Tag is not a valid UTF-8 string. Expected <tag SPACE command [arguments]>",
+                    ),
+                ))
+            }
+        }
+    }
+
+    fn get_command(&self, tag: &String, bytes: Option<&[u8]>) -> Result<String, IMAPError> {
+        match bytes {
+            Some(bytes) => Ok(match String::from_utf8(bytes.to_vec()) {
+                Ok(mut s) => {
+                    if s.ends_with('\n') {
+                        s.remove(s.len() - 1);
+                    }
+                    s
+                },
                 Err(_) => {
                     return Err(IMAPError::new(
-                        Vec::from(input_tag),
+                        Vec::from(tag.as_bytes()),
                         Error::new(
                             ErrorKind::InvalidInput,
                             "Provided command is not a valid UTF-8 string",
                         ),
                     ))
                 }
-            })
-            .to_lowercase(),
-            None => {
-                return Err(IMAPError::new(
-                    Vec::from(input_tag),
-                    Error::new(
-                        ErrorKind::InvalidInput,
-                        "Command not provided. Expected <tag SPACE command [arguments]>",
-                    ),
-                ))
             }
-        };
-        let mut input_args = Vec::new();
-        while let Some(arg) = split_input.next() {
-            // remove the new line from the end of the arg array
-            if arg == b"\n" || arg == b"\r\n" { continue };
-            input_args.push(Vec::from(arg));
+            .to_lowercase()),
+            None => Err(IMAPError::new(
+                Vec::from(tag.as_bytes()),
+                Error::new(
+                    ErrorKind::InvalidInput,
+                    "Command not provided. Expected <tag SPACE command [arguments]>",
+                ),
+            )),
         }
-        return Ok(Command {
-            tag: input_tag,
-            command: input_command,
-            args: input_args,
-        });
+    }
+
+    fn get_args<'a, I: Iterator<Item = &'a [u8]>>(
+        &self,
+        tag: &String,
+        mut arguments: I,
+    ) -> Result<Vec<String>, IMAPError> {
+        let mut args = Vec::new();
+        while let Some(arg) = arguments.next() {
+            // remove the new line from the end of the arg array
+            if arg == b"\n" || arg == b"\r\n" {
+                continue;
+            };
+            let arg = match String::from_utf8(arg.to_vec()) {
+                Ok(arg) => arg,
+                Err(_) => {
+                    return Err(IMAPError::new(
+                        Vec::from(tag.as_bytes()),
+                        Error::new(
+                            ErrorKind::InvalidInput,
+                            format!("Provided arg {:02x?} is not a valid UTF-8 string", arg),
+                        ),
+                    ))
+                }
+            };
+            args.push(arg);
+        }
+        Ok(args)
     }
 }
 
@@ -170,19 +231,13 @@ mod tests {
         let parser = Parser::new();
         let data = [
             b'\xC0', b'\xC1', b'\xF5', b'\xF6', b'\xF7', b'\xF8', b'\xF9', b'\xFA', b'\xFB',
-            b'\xFC', b'\xFD', b'\xFE', b'\xFF', b' ', b't', b'e', b's', b't'
+            b'\xFC', b'\xFD', b'\xFE', b'\xFF', b' ', b't', b'e', b's', b't',
         ];
         let input = Vec::from(&data as &[u8]);
 
         let command = parser.parse(input);
 
-        match command {
-            Ok(command) => assert_eq!(command.tag, data[0..13]),
-            Err(e) => {
-                eprintln!("{:?}", e);
-                panic!("Un unexpected error occurred while parsing non UTF-8 characters");
-            }
-        }
+        assert_eq!(command.unwrap_err().tag, []);
     }
 
     #[test]
