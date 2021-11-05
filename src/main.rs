@@ -1,9 +1,9 @@
 mod auth;
 mod error;
-mod handler;
 mod parser;
 mod server;
 mod requests;
+mod handlers;
 
 use log::LevelFilter::Info;
 use simple_logger::SimpleLogger;

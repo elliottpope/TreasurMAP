@@ -6,7 +6,7 @@ use log::{debug, error};
 
 use crate::auth::{BasicAuthenticator, InMemoryUserStore, UserStore};
 use crate::error::IMAPError;
-use crate::handler::{CapabilityHandler, Handle, LoginHandler, UnknownCommandHandler};
+use crate::handlers::{CapabilityHandler, Handle, login_handler::LoginHandler, UnknownCommandHandler};
 use crate::parser::{Command, Parser};
 
 const DEFAULT_BUFFER_SIZE: u64 = 1024;
@@ -169,7 +169,7 @@ use std::iter::FromIterator;
 use super::{RequestHandler, HandleRequest};
 
 use crate::parser::Parser;
-use crate::handler::{CapabilityHandler, UnknownCommandHandler, Handle};
+use crate::handlers::{CapabilityHandler, UnknownCommandHandler, Handle};
 
     #[test]
     fn test_request_handler_handles_unknown_tag() {
