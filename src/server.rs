@@ -190,15 +190,15 @@ impl IMAPServer {
 #[cfg(test)]
 mod tests {
     use super::{IMAPServer, ServerConfiguration};
-    use crate::requests::HandleRequest;
     use crate::error::IMAPError;
+    use crate::requests::HandleRequest;
+    use log::debug;
     use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Write};
     use std::net::TcpStream;
-    use std::panic::panic_any;
-    use std::thread::{sleep, spawn};
-    use std::time::Duration;
     use std::ops::{Add, Neg};
-    use log::debug;
+    use std::panic::panic_any;
+    use std::thread::{sleep, spawn, JoinHandle};
+    use std::time::Duration;
 
     #[test]
     fn test_can_listen_on_port() {
@@ -210,44 +210,24 @@ mod tests {
         }
 
         run_with_server(3133, &EmptyRequestHandler {}, |port: i16| {
-            let thread =
-                spawn(
-                    move || match TcpStream::connect(format!("{}:{}", "127.0.0.1", port)) {
-                        Ok(..) => {}
-                        Err(e) => {
-                            eprintln!("{:?}", e);
-                            panic_any(e)
-                        }
-                    },
-                );
-
-            match thread.join() {
-                Ok(..) => {}
-                Err(..) => {
-                    panic!("An error occured while writing to the server")
-                }
-            }
+            let thread = run_with_client_in_thread(port, |_| {});
+            join_thread_or_panic(thread)
         });
     }
     #[test]
     fn test_connection_closes_after_timeout() {
         run_with_server(3136, &EchoingRequestHandler {}, |port: i16| {
-            let thread = spawn(move || {
-                let stream = match TcpStream::connect(format!("{}:{}", "127.0.0.1", port)) {
-                    Ok(mut client) => {
-                        client.write(b"This is a test message\n").expect("Was not able to write to stream");
-                        client.flush().expect("Failed to flush write buffer");
-                        let mut buf: [u8; 23] = [0;23];
-                        client.read(&mut buf).expect("Unable to read from stream");
-                        assert_eq!(b"This is a test message\n", &buf);
-                        client
-                    }
-                    Err(e) => {
-                        eprintln!("{:?}", e);
-                        panic_any(e)
-                    }
-                };
+            let thread = run_with_client_in_thread(port, |mut stream: TcpStream| {
+                stream
+                    .write(b"This is a test message\n")
+                    .expect("Was not able to write to stream");
+                stream.flush().expect("Failed to flush write buffer");
+                let mut buf: [u8; 23] = [0; 23];
+                stream.read(&mut buf).expect("Unable to read from stream");
+                assert_eq!(b"This is a test message\n", &buf);
+
                 sleep(Duration::from_secs(1));
+
                 let mut buf: [u8; 1] = [0; 1];
                 match stream.peek(&mut buf) {
                     Ok(peeked) => {
@@ -263,84 +243,40 @@ mod tests {
                     }
                 };
             });
-            match thread.join() {
-                Ok(..) => {}
-                Err(..) => {
-                    panic!("An error occured while writing to the server")
-                }
-            }
+            join_thread_or_panic(thread);
         })
     }
     #[test]
     fn test_can_read_data_below_limit() {
         run_with_server(3134, &EchoingRequestHandler {}, |port: i16| {
-            let thread = std::thread::spawn(move || {
-                match TcpStream::connect(format!("{}:{}", "127.0.0.1", port)) {
-                    Ok(mut client) => {
-                        let mut buf: [u8; 14] = [0; 14];
-                        client.write(b"This is a test\n").unwrap();
-                        client.read(&mut buf).unwrap();
-                        assert_eq!(b"This is a test", &buf);
-                    }
-                    Err(e) => {
-                        eprintln!("{:?}", e);
-                        panic_any(e)
-                    }
-                }
+            let thread = run_with_client_in_thread(port, |mut stream: TcpStream| {
+                let mut buf: [u8; 14] = [0; 14];
+                stream.write(b"This is a test\n").unwrap();
+                stream.read(&mut buf).unwrap();
+                assert_eq!(b"This is a test", &buf);
             });
 
-            match thread.join() {
-                Ok(..) => {}
-                Err(..) => {
-                    panic!("An error occured while writing to the server")
-                }
-            }
+            join_thread_or_panic(thread);
         });
     }
     #[test]
     fn test_can_handle_multiple_connections() {
         run_with_server(3135, &EchoingRequestHandler {}, |port: i16| {
-            let thread1 = std::thread::spawn(move || {
-                match TcpStream::connect(format!("{}:{}", "127.0.0.1", port)) {
-                    Ok(mut client) => {
-                        let mut buf: [u8; 14] = [0; 14];
-                        client.write(b"This is test 1\n").unwrap();
-                        client.read(&mut buf).unwrap();
-                        assert_eq!(b"This is test 1", &buf);
-                    }
-                    Err(e) => {
-                        eprintln!("{:?}", e);
-                        panic_any(e)
-                    }
-                }
+            let thread1 = run_with_client_in_thread(port, |mut stream: TcpStream| {
+                let mut buf: [u8; 14] = [0; 14];
+                stream.write(b"This is test 1\n").unwrap();
+                stream.read(&mut buf).unwrap();
+                assert_eq!(b"This is test 1", &buf);
             });
-            let thread2 = std::thread::spawn(move || {
-                match TcpStream::connect(format!("{}:{}", "127.0.0.1", port)) {
-                    Ok(mut client) => {
-                        let mut buf: [u8; 14] = [0; 14];
-                        client.write(b"This is test 2\n").unwrap();
-                        client.read(&mut buf).unwrap();
-                        assert_eq!(b"This is test 2", &buf);
-                    }
-                    Err(e) => {
-                        eprintln!("{:?}", e);
-                        panic_any(e)
-                    }
-                }
+            let thread2 = run_with_client_in_thread(port, |mut stream: TcpStream| {
+                let mut buf: [u8; 14] = [0; 14];
+                stream.write(b"This is test 2\n").unwrap();
+                stream.read(&mut buf).unwrap();
+                assert_eq!(b"This is test 2", &buf);
             });
 
-            match thread1.join() {
-                Ok(..) => {}
-                Err(..) => {
-                    panic!("An error occured while writing to the server")
-                }
-            }
-            match thread2.join() {
-                Ok(..) => {}
-                Err(..) => {
-                    panic!("An error occured while writing to the server")
-                }
-            }
+            join_thread_or_panic(thread1);
+            join_thread_or_panic(thread2);
         })
     }
 
@@ -351,6 +287,27 @@ mod tests {
         let after_wait = chrono::Local::now();
         let a_little_before = after_wait.add(chrono::Duration::milliseconds(400).neg());
         assert_eq!(now.lt(&a_little_before), true)
+    }
+
+    fn run_with_client_in_thread(port: i16, test: fn(TcpStream)) -> JoinHandle<()> {
+        spawn(
+            move || match TcpStream::connect(format!("{}:{}", "127.0.0.1", port)) {
+                Ok(client) => test(client),
+                Err(e) => {
+                    eprintln!("{:?}", e);
+                    panic_any(e)
+                }
+            },
+        )
+    }
+
+    fn join_thread_or_panic<A>(thread: JoinHandle<A>) {
+        match thread.join() {
+            Ok(..) => {}
+            Err(..) => {
+                panic!("An error occured while writing to the server")
+            }
+        }
     }
 
     fn run_with_server<H: HandleRequest + Send + Sync>(
