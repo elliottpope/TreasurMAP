@@ -8,7 +8,7 @@ edition = "2018"
 [dependencies]
 log = "0.4"
 threadpool = "1.8"
-simple_logger = "1.15"
+simple_logger = "1.16"
 chrono = "0.4"
 #timeout-readwrite = "0.3"
 #async-std = "1.10"
