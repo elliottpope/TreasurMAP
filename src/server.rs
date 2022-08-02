@@ -20,15 +20,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_listen::{error_hint, ListenExt};
+use async_lock::RwLock;
 use async_std::io::BufReader;
 use async_std::net::{TcpListener, TcpStream};
 use async_std::prelude::*;
 use async_std::task::spawn;
-use async_lock::RwLock;
 
 use futures::channel::mpsc::unbounded;
 use futures::SinkExt;
-use log::{warn, info, trace};
+use log::{info, trace, warn};
 
 use crate::util::{Receiver, Result, Sender};
 
@@ -99,8 +99,6 @@ impl DelegatingCommandHandler {
     }
 }
 
-
-
 pub struct ServerConfiguration {
     address: String,
     max_connections: usize,
@@ -108,7 +106,7 @@ pub struct ServerConfiguration {
 }
 
 pub struct Configuration {
-    server: ServerConfiguration
+    server: ServerConfiguration,
 }
 
 impl Default for ServerConfiguration {
@@ -139,8 +137,7 @@ pub struct DefaultServer {
 }
 
 #[async_trait::async_trait]
-impl Server for DefaultServer
-{
+impl Server for DefaultServer {
     async fn start(&self) -> Result<()> {
         trace!("Server starting on {}", &self.config.server.address);
         let listener = TcpListener::bind(&self.config.server.address).await?;
@@ -171,16 +168,17 @@ impl Server for DefaultServer
 
 impl DefaultServer {
     pub fn new(config: Configuration) -> Self {
-        DefaultServer {
-            config,
-        }
-    } 
+        DefaultServer { config }
+    }
 
     pub async fn start_with_notification(&self, sender: std::sync::mpsc::Sender<()>) -> Result<()> {
         trace!("Server starting on {}", &self.config.server.address);
         let listener = TcpListener::bind(&self.config.server.address).await?;
 
-        trace!("Listening for connections on {}", &self.config.server.address);
+        trace!(
+            "Listening for connections on {}",
+            &self.config.server.address
+        );
         let mut incoming = listener
             .incoming()
             .log_warnings(|e| {
@@ -198,7 +196,10 @@ impl DefaultServer {
             trace!("New connection from {}", &socket.peer_addr()?);
             spawn(async move {
                 let _holder = token;
-                trace!("Spawning handler for new connection from {}", &socket.peer_addr()?);
+                trace!(
+                    "Spawning handler for new connection from {}",
+                    &socket.peer_addr()?
+                );
                 new_connection(socket).await
             });
         }
@@ -212,7 +213,10 @@ async fn new_connection(stream: TcpStream) -> Result<()> {
     let output = Arc::clone(&stream);
     let (mut response_sender, mut response_receiver): (Sender<String>, Receiver<String>) =
         unbounded();
-    trace!("Spawning writer thread for connection from {}", &stream.peer_addr()?);
+    trace!(
+        "Spawning writer thread for connection from {}",
+        &stream.peer_addr()?
+    );
     let writer = spawn(async move {
         let mut output = &*output;
         while let Some(response) = response_receiver.next().await {
@@ -221,20 +225,22 @@ async fn new_connection(stream: TcpStream) -> Result<()> {
         }
     });
     info!("Sending greeting to client at {}", &stream.peer_addr()?);
-    response_sender.send("* OK IMAP4rev2 server ready".to_string()).await?;
-    let reader = spawn(async move {
-        let input = BufReader::new(&*stream);
-        let mut lines = input.lines();
-        trace!("Reading input from connection at {}", &stream.peer_addr().unwrap());
-        while let Some(line) = lines.next().await {
-            // let command = parse(line);
-            // let response = handle(command);
-            trace!("Read from client at {}", &stream.peer_addr().unwrap());
-            response_sender.send(line.unwrap()).await.unwrap();
-        }
-        drop(response_sender);
-    });
-    reader.await;
+    response_sender
+        .send("* OK IMAP4rev2 server ready".to_string())
+        .await?;
+    let input = BufReader::new(&*stream);
+    let mut lines = input.lines();
+    trace!(
+        "Reading input from connection at {}",
+        &stream.peer_addr().unwrap()
+    );
+    while let Some(line) = lines.next().await {
+        // let command = parse(line);
+        // let response = handle(command);
+        trace!("Read from client at {}", &stream.peer_addr().unwrap());
+        response_sender.send(line.unwrap()).await.unwrap();
+    }
+    drop(response_sender);
     writer.await;
     Ok(())
 }
