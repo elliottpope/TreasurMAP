@@ -28,7 +28,7 @@ use async_lock::RwLock;
 
 use futures::channel::mpsc::unbounded;
 use futures::SinkExt;
-use log::warn;
+use log::{warn, info, trace};
 
 use crate::util::{Receiver, Result, Sender};
 
@@ -142,7 +142,7 @@ pub struct DefaultServer {
 impl Server for DefaultServer
 {
     async fn start(&self) -> Result<()> {
-        println!("Server starting ...");
+        trace!("Server starting on {}", &self.config.server.address);
         let listener = TcpListener::bind(&self.config.server.address).await?;
 
         println!("Preparing to listen for connections ...");
@@ -177,10 +177,10 @@ impl DefaultServer {
     } 
 
     pub async fn start_with_notification(&self, sender: std::sync::mpsc::Sender<()>) -> Result<()> {
-        println!("Server starting ...");
+        trace!("Server starting on {}", &self.config.server.address);
         let listener = TcpListener::bind(&self.config.server.address).await?;
 
-        println!("Preparing to listen for connections ...");
+        trace!("Listening for connections on {}", &self.config.server.address);
         let mut incoming = listener
             .incoming()
             .log_warnings(|e| {
@@ -195,10 +195,11 @@ impl DefaultServer {
         sender.send(())?;
         drop(sender);
         while let Some((token, socket)) = incoming.next().await {
-            println!("New connection ...");
+            trace!("New connection from {}", &socket.peer_addr()?);
             spawn(async move {
                 let _holder = token;
-                new_connection(socket)
+                trace!("Spawning handler for new connection from {}", &socket.peer_addr()?);
+                new_connection(socket).await
             });
         }
 
@@ -211,20 +212,29 @@ async fn new_connection(stream: TcpStream) -> Result<()> {
     let output = Arc::clone(&stream);
     let (mut response_sender, mut response_receiver): (Sender<String>, Receiver<String>) =
         unbounded();
+    trace!("Spawning writer thread for connection from {}", &stream.peer_addr()?);
     let writer = spawn(async move {
         let mut output = &*output;
         while let Some(response) = response_receiver.next().await {
             output.write(response.as_bytes()).await.unwrap();
+            output.write("\n".as_bytes()).await.unwrap();
         }
     });
-    let input = BufReader::new(&*stream);
-    let mut lines = input.lines();
-    while let Some(line) = lines.next().await {
-        // let command = parse(line);
-        // let response = handle(command);
-        response_sender.send(line?).await?;
-    }
-    drop(response_sender);
+    info!("Sending greeting to client at {}", &stream.peer_addr()?);
+    response_sender.send("* OK IMAP4rev2 server ready".to_string()).await?;
+    let reader = spawn(async move {
+        let input = BufReader::new(&*stream);
+        let mut lines = input.lines();
+        trace!("Reading input from connection at {}", &stream.peer_addr().unwrap());
+        while let Some(line) = lines.next().await {
+            // let command = parse(line);
+            // let response = handle(command);
+            trace!("Read from client at {}", &stream.peer_addr().unwrap());
+            response_sender.send(line.unwrap()).await.unwrap();
+        }
+        drop(response_sender);
+    });
+    reader.await;
     writer.await;
     Ok(())
 }

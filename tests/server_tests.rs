@@ -11,7 +11,7 @@ fn test_can_connect() {
 
     let config = Configuration::default(); // TODO: add the new, from_env, and from_file options to override configs
     let server = DefaultServer::new(config);
-    std::thread::spawn(move || {
+    let server_handle = std::thread::spawn(move || {
         task::block_on(server.start_with_notification(sender))
     });
 
@@ -46,4 +46,5 @@ fn test_can_connect() {
 
     // be nice to the server and log out
     imap_session.logout().unwrap();
+    drop(server_handle)
 }
