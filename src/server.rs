@@ -228,34 +228,3 @@ async fn new_connection(stream: TcpStream) -> Result<()> {
     writer.await;
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{DefaultServer, Server, Configuration};
-
-    use async_std::net::TcpStream;
-    use async_std::prelude::*;
-    use async_std::task::spawn;
-
-    #[async_std::test]
-    async fn test_can_handle_multiple_connections() {
-        let server = DefaultServer {
-            config: Configuration::default(),
-        };
-        spawn(async move {
-            server.start().await
-        });
-        let mut client1 = TcpStream::connect("127.0.0.1:143").await.unwrap();
-        client1.write(b"This is a test 1").await.unwrap();
-        let mut client2 = TcpStream::connect("127.0.0.1:143").await.unwrap();
-        client2.write(b"This is a test 2").await.unwrap();
-        let read1: &mut [u8] = &mut [0; 16];
-        client1.read(read1).await.unwrap();
-        let read2: &mut [u8] = &mut [0; 16];
-        client2.read(read2).await.unwrap();
-
-        assert_eq!(read1, b"This is a test 1");
-        assert_eq!(read2, b"This is a test 2");
-        ()
-    }
-}
