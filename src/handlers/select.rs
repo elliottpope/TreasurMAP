@@ -29,13 +29,14 @@ impl HandleCommand for SelectHandler {
     }
     async fn handle<'a>(&self, command: &'a Command) -> Result<Vec<Response>> {
         Ok(vec!(
-            Response::new(command.tag(), ResponseStatus::OK, "SELECT completed.".to_string()),
-            Response::new(command.tag(), ResponseStatus::OK, "completed.".to_string()),
-            Response::new(command.tag(), ResponseStatus::OK, "completed.".to_string()),
-            Response::new(command.tag(), ResponseStatus::OK, "completed.".to_string()),
-            Response::new(command.tag(), ResponseStatus::OK, "completed.".to_string()),
-            Response::new(command.tag(), ResponseStatus::OK, "completed.".to_string()),
-            Response::new(command.tag(), ResponseStatus::OK, "completed.".to_string()),
+            
+            Response::from("* 172 EXISTS").unwrap(),
+            Response::from("* OK [UIDVALIDITY 3857529045] UIDs valid").unwrap(),
+            Response::from("* OK [UIDNEXT 4392] Predicted next UID").unwrap(),
+            Response::from("* FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft)").unwrap(),
+            Response::from("* OK [PERMANENTFLAGS (\\Deleted \\Seen \\*)] Limited").unwrap(),
+            Response::from("* LIST () \"/\" INBOX").unwrap(),
+            Response::new(command.tag(), ResponseStatus::OK, "[READ-WRITE] SELECT completed.".to_string()),
         ))
     }
 }
@@ -63,7 +64,13 @@ mod tests {
 
     fn select_success(response: Result<Vec<Response>>) {
         assert_eq!(response.is_ok(), true);
-        let reply = &response.unwrap()[0];
-        assert_eq!(reply, &Response::new("a1".to_string(), ResponseStatus::OK, "SELECT completed.".to_string()));
+        assert_eq!(response.unwrap(), vec!(
+            Response::from("* 172 EXISTS").unwrap(),
+            Response::from("* OK [UIDVALIDITY 3857529045] UIDs valid").unwrap(),
+            Response::from("* OK [UIDNEXT 4392] Predicted next UID").unwrap(),
+            Response::from("* FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft)").unwrap(),
+            Response::from("* OK [PERMANENTFLAGS (\\Deleted \\Seen \\*)] Limited").unwrap(),
+            Response::from("* LIST () \"/\" INBOX").unwrap(),
+            Response::new("a1".to_string(), ResponseStatus::OK, "[READ-WRITE] SELECT completed.".to_string())));
     }
 }

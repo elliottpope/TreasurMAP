@@ -16,24 +16,26 @@
 
 // server.start()
 
-use std::sync::Arc;
-use std::time::Duration;
 use std::collections::VecDeque;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
+use std::time::Duration;
 
 use async_listen::{error_hint, ListenExt};
 use async_std::io::BufReader;
 use async_std::net::{TcpListener, TcpStream};
 use async_std::prelude::*;
-use async_std::task::{spawn, block_on};
+use async_std::task::{block_on, spawn};
 
 use futures::channel::mpsc::unbounded;
 use futures::SinkExt;
 use log::{info, trace, warn};
 
+use crate::handlers::{
+    login::LoginHandler, select::SelectHandler, DelegatingCommandHandler, HandleCommand,
+};
 use crate::util::{Receiver, Result, Sender};
-use crate::handlers::{HandleCommand, DelegatingCommandHandler, login::LoginHandler, select::SelectHandler};
 
 pub struct Command {
     tag: String,
@@ -46,7 +48,7 @@ impl Command {
         Command {
             tag,
             command: command.to_uppercase(),
-            args
+            args,
         }
     }
     pub fn tag(&self) -> String {
@@ -57,7 +59,7 @@ impl Command {
     }
     pub fn arg(&self, position: usize) -> String {
         if self.args.len() <= position {
-            return "".to_string()
+            return "".to_string();
         }
         self.args[position].clone()
     }
@@ -87,7 +89,7 @@ impl ResponseStatus {
             "OK" => Ok(ResponseStatus::OK),
             "BAD" => Ok(ResponseStatus::BAD),
             "NO" => Ok(ResponseStatus::NO),
-            &_ => Err(ParseError{}),
+            &_ => Err(ParseError {}),
         }
     }
 }
@@ -107,18 +109,22 @@ impl Response {
             message,
         }
     }
-    pub fn from(string: String) -> std::result::Result<Response, ParseError> {
+    pub fn from(string: &str) -> std::result::Result<Response, ParseError> {
         let components: Vec<String> = string.split(" ").map(|s| s.to_string()).collect();
         if components.len() < 3 {
-            return Err(ParseError{})
+            return Err(ParseError {});
         }
+        let status = match ResponseStatus::from(components[1].clone()) {
+            Ok(status) => Some(status),
+            Err(_) => None,
+        };
         Ok(Response {
             tag: components[0].clone(),
-            status: match ResponseStatus::from(components[1].clone()) {
-                Ok(status) => Some(status),
-                Err(_) => None,
+            status,
+            message: match status {
+                Some(_) => components[2..].join(" "),
+                None => components[1..].join(" "),
             },
-            message: components[2].clone(),
         })
     }
     pub fn tag(&self) -> String {
@@ -148,18 +154,18 @@ impl Display for ParseError {
         write!(f, "ParseError")
     }
 }
-impl Error for ParseError{}
+impl Error for ParseError {}
 
 impl Command {
     fn parse(cmd: &String) -> std::result::Result<Command, ParseError> {
         let mut values: VecDeque<String> = cmd.split(" ").map(|s| s.to_string()).collect();
         let tag = match values.pop_front() {
             Some(t) => t,
-            None => return Err(ParseError{}),
+            None => return Err(ParseError {}),
         };
         let command = match values.pop_front() {
             Some(c) => c,
-            None => return Err(ParseError{}),
+            None => return Err(ParseError {}),
         };
         Ok(Command {
             tag,
@@ -207,8 +213,8 @@ impl Default for Server {
         let config = Configuration::default(); // TODO: add the new, from_env, and from_file options to override configs
         let delegating_handler = DelegatingCommandHandler::new();
         block_on(async {
-            delegating_handler.register_command(LoginHandler{}).await;
-            delegating_handler.register_command(SelectHandler{}).await;
+            delegating_handler.register_command(LoginHandler {}).await;
+            delegating_handler.register_command(SelectHandler {}).await;
         });
         Server::new(config, delegating_handler)
     }
@@ -244,7 +250,7 @@ impl Server {
     }
 
     pub fn new(config: Configuration, handler: DelegatingCommandHandler) -> Self {
-        Server { 
+        Server {
             config,
             handler: Arc::new(handler),
         }
@@ -291,8 +297,10 @@ impl Server {
 async fn new_connection<T: HandleCommand>(stream: TcpStream, handler: Arc<T>) -> Result<()> {
     let stream = Arc::new(stream);
     let output = Arc::clone(&stream);
-    let (mut response_sender, mut response_receiver): (Sender<Vec<Response>>, Receiver<Vec<Response>>) =
-        unbounded();
+    let (mut response_sender, mut response_receiver): (
+        Sender<Vec<Response>>,
+        Receiver<Vec<Response>>,
+    ) = unbounded();
     trace!(
         "Spawning writer thread for connection from {}",
         &stream.peer_addr()?
@@ -301,18 +309,24 @@ async fn new_connection<T: HandleCommand>(stream: TcpStream, handler: Arc<T>) ->
         let mut output = &*output;
         while let Some(response) = response_receiver.next().await {
             for reply in response {
-            trace!("Sending {} to client at {}", &reply.to_string(), &output.peer_addr().unwrap());
-            output.write(reply.to_string().as_bytes()).await.unwrap();
-            output.write("\r\n".as_bytes()).await.unwrap();
+                trace!(
+                    "Sending {} to client at {}",
+                    &reply.to_string(),
+                    &output.peer_addr().unwrap()
+                );
+                output.write(reply.to_string().as_bytes()).await.unwrap();
+                output.write("\r\n".as_bytes()).await.unwrap();
             }
         }
     });
     info!("Sending greeting to client at {}", &stream.peer_addr()?);
-    response_sender.send(vec!(Response::new(
-        "*".to_string(),
-        ResponseStatus::OK,
-        "IMAP4rev2 server ready".to_string(),
-    ))).await?;
+    response_sender
+        .send(vec![Response::new(
+            "*".to_string(),
+            ResponseStatus::OK,
+            "IMAP4rev2 server ready".to_string(),
+        )])
+        .await?;
     let input = BufReader::new(&*stream);
     let mut lines = input.lines();
     trace!(
@@ -321,7 +335,11 @@ async fn new_connection<T: HandleCommand>(stream: TcpStream, handler: Arc<T>) ->
     );
     while let Some(line) = lines.next().await {
         let line = line?;
-        trace!("Read {} from client at {}", &line, &stream.peer_addr().unwrap());
+        trace!(
+            "Read {} from client at {}",
+            &line,
+            &stream.peer_addr().unwrap()
+        );
         let command = Command::parse(&line)?;
         let response = handler.handle(&command).await?;
         response_sender.send(response).await.unwrap();
