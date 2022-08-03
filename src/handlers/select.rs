@@ -46,9 +46,6 @@ mod tests {
     fn select_success(response: Result<Vec<Response>>) {
         assert_eq!(response.is_ok(), true);
         let reply = &response.unwrap()[0];
-        assert_eq!(reply.tag(), "a1".to_string());
-        assert_eq!(reply.status(), ResponseStatus::OK);
-        assert_eq!(reply.command(), "SELECT".to_string());
-        assert_eq!(reply.message(), "completed.".to_string());
+        assert_eq!(reply, &Response::new("a1".to_string(), ResponseStatus::OK, "SELECT".to_string(), "completed.".to_string()));
     }
 }

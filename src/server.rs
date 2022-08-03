@@ -82,7 +82,7 @@ impl Display for ResponseStatus {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Response {
     tag: String,
     status: ResponseStatus,
