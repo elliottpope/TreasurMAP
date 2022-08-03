@@ -45,7 +45,7 @@ impl Command {
     pub fn new(tag: String, command: String, args: Vec<String>) -> Command {
         Command {
             tag,
-            command,
+            command: command.to_uppercase(),
             args
         }
     }
