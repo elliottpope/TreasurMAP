@@ -36,7 +36,8 @@ impl HandleCommand for LoginHandler {
 mod tests {
     use super::LoginHandler;
     use crate::handlers::HandleCommand;
-    use crate::server::{Command, ResponseStatus};
+    use crate::server::{Command, ResponseStatus, Response};
+    use crate::util::Result;
 
     #[async_std::test]
     async fn test_can_login() {
@@ -49,6 +50,40 @@ mod tests {
         let valid = login_handler.validate(&login_command).await;
         assert_eq!(valid.is_ok(), true);
         let response = login_handler.handle(&login_command).await;
+        login_success(response);
+    }
+
+    #[async_std::test]
+    async fn test_login_success_command_lower_case() {
+        // all lower case
+        let login_handler = LoginHandler{};
+        let login_command = Command::new(
+            "a1".to_string(),
+            "login".to_string(),
+            vec!["my@email.com".to_string(), "password".to_string()],
+        );
+        let valid = login_handler.validate(&login_command).await;
+        assert_eq!(valid.is_ok(), true);
+        let response = login_handler.handle(&login_command).await;
+        login_success(response);
+    }
+
+    #[async_std::test]
+    async fn test_login_success_command_camel_case() {
+        // all lower case
+        let login_handler = LoginHandler{};
+        let login_command = Command::new(
+            "a1".to_string(),
+            "Login".to_string(),
+            vec!["my@email.com".to_string(), "password".to_string()],
+        );
+        let valid = login_handler.validate(&login_command).await;
+        assert_eq!(valid.is_ok(), true);
+        let response = login_handler.handle(&login_command).await;
+        login_success(response);
+    }
+
+    fn login_success(response: Result<Response>) {
         assert_eq!(response.is_ok(), true);
         let reply = response.unwrap();
         assert_eq!(reply.tag(), "a1".to_string());
