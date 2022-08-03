@@ -81,29 +81,45 @@ impl Display for ResponseStatus {
         }
     }
 }
+impl ResponseStatus {
+    pub fn from(string: String) -> ResponseStatus {
+        match string.as_str() {
+            "OK" => ResponseStatus::OK,
+            "BAD" => ResponseStatus::BAD,
+            "NO" => ResponseStatus::NO,
+            &_ => ResponseStatus::NO,
+        }
+    }
+}
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Response {
     tag: String,
     status: ResponseStatus,
-    command: String,
     message: String,
 }
 
 impl Response {
-    pub fn new(tag: String, status: ResponseStatus, command: String, message: String) -> Response {
+    pub fn new(tag: String, status: ResponseStatus, message: String) -> Response {
         Response {
             tag,
             status,
-            command,
             message,
         }
     }
+    pub fn from(string: String) -> std::result::Result<Response, ParseError> {
+        let components: Vec<String> = string.split(" ").map(|s| s.to_string()).collect();
+        if components.len() < 3 {
+            return Err(ParseError{})
+        }
+        Ok(Response {
+            tag: components[0].clone(),
+            status: ResponseStatus::from(components[1].clone()),
+            message: components[2].clone(),
+        })
+    }
     pub fn tag(&self) -> String {
         self.tag.clone()
-    }
-    pub fn command(&self) -> String {
-        self.command.clone()
     }
     pub fn status(&self) -> ResponseStatus {
         self.status
@@ -115,7 +131,7 @@ impl Response {
 
 impl ToString for Response {
     fn to_string(&self) -> String {
-        format!("{} {} {} {}", self.tag, self.status, self.command, self.message)
+        format!("{} {} {}", self.tag, self.status, self.message)
     }
 }
 
@@ -282,12 +298,11 @@ async fn new_connection<T: HandleCommand>(stream: TcpStream, handler: Arc<T>) ->
         }
     });
     info!("Sending greeting to client at {}", &stream.peer_addr()?);
-    response_sender.send(vec!(Response {
-        tag: "*".to_string(),
-        status: ResponseStatus::OK,
-        command: "IMAP4rev2".to_string(),
-        message: "server ready".to_string(),
-    })).await?;
+    response_sender.send(vec!(Response::new(
+        "*".to_string(),
+        ResponseStatus::OK,
+        "IMAP4rev2 server ready".to_string(),
+    ))).await?;
     let input = BufReader::new(&*stream);
     let mut lines = input.lines();
     trace!(

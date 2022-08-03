@@ -45,7 +45,6 @@ impl HandleCommand for DelegatingCommandHandler {
         Ok(vec!(Response::new(
             command.tag(),
             ResponseStatus::NO,
-            command.command(),
             "Command unknown".to_string(),
         )))
     }

@@ -1,3 +1,13 @@
+// From RFC 9051 (https://www.ietf.org/rfc/rfc9051.html#name-select-command):
+//  C: A142 SELECT INBOX
+//  S: * 172 EXISTS
+//  S: * OK [UIDVALIDITY 3857529045] UIDs valid
+//  S: * OK [UIDNEXT 4392] Predicted next UID
+//  S: * FLAGS (\Answered \Flagged \Deleted \Seen \Draft)
+//  S: * OK [PERMANENTFLAGS (\Deleted \Seen \*)] Limited
+//  S: * LIST () "/" INBOX
+//  S: A142 OK [READ-WRITE] SELECT completed
+
 use crate::handlers::{HandleCommand};
 use crate::server::{Command, Response, ResponseStatus, ParseError};
 use crate::util::Result;
@@ -18,7 +28,15 @@ impl HandleCommand for SelectHandler {
         Ok(())
     }
     async fn handle<'a>(&self, command: &'a Command) -> Result<Vec<Response>> {
-        Ok(vec!(Response::new(command.tag(), ResponseStatus::OK, command.command(), "completed.".to_string())))
+        Ok(vec!(
+            Response::new(command.tag(), ResponseStatus::OK, "SELECT completed.".to_string()),
+            Response::new(command.tag(), ResponseStatus::OK, "completed.".to_string()),
+            Response::new(command.tag(), ResponseStatus::OK, "completed.".to_string()),
+            Response::new(command.tag(), ResponseStatus::OK, "completed.".to_string()),
+            Response::new(command.tag(), ResponseStatus::OK, "completed.".to_string()),
+            Response::new(command.tag(), ResponseStatus::OK, "completed.".to_string()),
+            Response::new(command.tag(), ResponseStatus::OK, "completed.".to_string()),
+        ))
     }
 }
 
@@ -46,6 +64,6 @@ mod tests {
     fn select_success(response: Result<Vec<Response>>) {
         assert_eq!(response.is_ok(), true);
         let reply = &response.unwrap()[0];
-        assert_eq!(reply, &Response::new("a1".to_string(), ResponseStatus::OK, "SELECT".to_string(), "completed.".to_string()));
+        assert_eq!(reply, &Response::new("a1".to_string(), ResponseStatus::OK, "SELECT completed.".to_string()));
     }
 }

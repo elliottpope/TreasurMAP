@@ -26,8 +26,7 @@ impl HandleCommand for LoginHandler {
         Ok(vec!(Response::new(
             command.tag(),
             ResponseStatus::OK,
-            command.command(),
-            "completed.".to_string(),
+            "LOGIN completed.".to_string(),
         )))
     }
 }
@@ -90,7 +89,6 @@ mod tests {
         let reply = &r[0];
         assert_eq!(reply.tag(), "a1".to_string());
         assert_eq!(reply.status(), ResponseStatus::OK);
-        assert_eq!(reply.command(), "LOGIN".to_string());
-        assert_eq!(reply.message(), "completed.".to_string());
+        assert_eq!(reply.message(), "LOGIN completed.".to_string());
     }
 }
