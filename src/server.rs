@@ -26,14 +26,14 @@ use async_listen::{error_hint, ListenExt};
 use async_std::io::BufReader;
 use async_std::net::{TcpListener, TcpStream};
 use async_std::prelude::*;
-use async_std::task::spawn;
+use async_std::task::{spawn, block_on};
 
 use futures::channel::mpsc::unbounded;
 use futures::SinkExt;
 use log::{info, trace, warn};
 
 use crate::util::{Receiver, Result, Sender};
-use crate::handlers::{HandleCommand, DelegatingCommandHandler};
+use crate::handlers::{HandleCommand, DelegatingCommandHandler, login::LoginHandler, select::SelectHandler};
 
 pub struct Command {
     tag: String,
@@ -197,19 +197,25 @@ impl Default for Configuration {
     }
 }
 
-#[async_trait::async_trait]
-pub trait Server {
-    async fn start(&self) -> Result<()>;
-}
-
-pub struct DefaultServer {
+pub struct Server {
     config: Configuration,
     handler: Arc<DelegatingCommandHandler>,
 }
 
-#[async_trait::async_trait]
-impl Server for DefaultServer {
-    async fn start(&self) -> Result<()> {
+impl Default for Server {
+    fn default() -> Server {
+        let config = Configuration::default(); // TODO: add the new, from_env, and from_file options to override configs
+        let delegating_handler = DelegatingCommandHandler::new();
+        block_on(async {
+            delegating_handler.register_command(LoginHandler{}).await;
+            delegating_handler.register_command(SelectHandler{}).await;
+        });
+        Server::new(config, delegating_handler)
+    }
+}
+
+impl Server {
+    pub async fn start(&self) -> Result<()> {
         trace!("Server starting on {}", &self.config.server.address);
         let listener = TcpListener::bind(&self.config.server.address).await?;
 
@@ -236,11 +242,9 @@ impl Server for DefaultServer {
 
         Ok(())
     }
-}
 
-impl DefaultServer {
     pub fn new(config: Configuration, handler: DelegatingCommandHandler) -> Self {
-        DefaultServer { 
+        Server { 
             config,
             handler: Arc::new(handler),
         }

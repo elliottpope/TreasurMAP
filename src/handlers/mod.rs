@@ -62,7 +62,7 @@ impl DelegatingCommandHandler {
             handlers: Arc::new(RwLock::new(Vec::new())),
         }
     }
-    pub async fn register_command(&self, handler: impl HandleCommand + Send + Sync + 'static) {
+    pub async fn register_command<T: HandleCommand + Send + Sync + 'static>(&self, handler: T) {
         let write_lock = &mut *self.handlers.write().await;
         write_lock.push(Box::new(handler));
     }
