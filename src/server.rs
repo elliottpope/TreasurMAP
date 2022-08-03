@@ -265,7 +265,7 @@ impl DefaultServer {
 async fn new_connection<T: HandleCommand>(stream: TcpStream, handler: Arc<T>) -> Result<()> {
     let stream = Arc::new(stream);
     let output = Arc::clone(&stream);
-    let (mut response_sender, mut response_receiver): (Sender<Response>, Receiver<Response>) =
+    let (mut response_sender, mut response_receiver): (Sender<Vec<Response>>, Receiver<Vec<Response>>) =
         unbounded();
     trace!(
         "Spawning writer thread for connection from {}",
@@ -274,17 +274,20 @@ async fn new_connection<T: HandleCommand>(stream: TcpStream, handler: Arc<T>) ->
     let writer = spawn(async move {
         let mut output = &*output;
         while let Some(response) = response_receiver.next().await {
-            output.write(response.to_string().as_bytes()).await.unwrap();
+            for reply in response {
+            trace!("Sending {} to client at {}", &reply.to_string(), &output.peer_addr().unwrap());
+            output.write(reply.to_string().as_bytes()).await.unwrap();
             output.write("\r\n".as_bytes()).await.unwrap();
+            }
         }
     });
     info!("Sending greeting to client at {}", &stream.peer_addr()?);
-    response_sender.send(Response {
+    response_sender.send(vec!(Response {
         tag: "*".to_string(),
         status: ResponseStatus::OK,
         command: "IMAP4rev2".to_string(),
         message: "server ready".to_string(),
-    }).await?;
+    })).await?;
     let input = BufReader::new(&*stream);
     let mut lines = input.lines();
     trace!(
@@ -296,7 +299,6 @@ async fn new_connection<T: HandleCommand>(stream: TcpStream, handler: Arc<T>) ->
         trace!("Read {} from client at {}", &line, &stream.peer_addr().unwrap());
         let command = Command::parse(&line)?;
         let response = handler.handle(&command).await?;
-        trace!("Sending {} to client at {}", &response.to_string(), &stream.peer_addr().unwrap());
         response_sender.send(response).await.unwrap();
     }
     drop(response_sender);

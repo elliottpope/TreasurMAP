@@ -12,7 +12,7 @@ use crate::server::{Command, Response, ResponseStatus};
 pub trait HandleCommand {
     fn name<'a>(&self) -> &'a str;
     async fn validate<'a>(&self, command: &'a Command) -> Result<()>;
-    async fn handle<'a>(&self, command: &'a Command) -> Result<Response>;
+    async fn handle<'a>(&self, command: &'a Command) -> Result<Vec<Response>>;
 }
 
 pub struct DelegatingCommandHandler {
@@ -34,7 +34,7 @@ impl HandleCommand for DelegatingCommandHandler {
         }
         Ok(())
     }
-    async fn handle<'a>(&self, command: &'a Command) -> Result<Response> {
+    async fn handle<'a>(&self, command: &'a Command) -> Result<Vec<Response>> {
         let read_lock = &*self.handlers.read().await;
         for handler in read_lock {
             match handler.handle(&command).await {
@@ -42,12 +42,12 @@ impl HandleCommand for DelegatingCommandHandler {
                 Err(..) => continue,
             }
         }
-        Ok(Response::new(
+        Ok(vec!(Response::new(
             command.tag(),
             ResponseStatus::NO,
             command.command(),
             "Command unknown".to_string(),
-        ))
+        )))
     }
 }
 

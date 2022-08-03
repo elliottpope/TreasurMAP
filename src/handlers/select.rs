@@ -17,8 +17,8 @@ impl HandleCommand for SelectHandler {
         }
         Ok(())
     }
-    async fn handle<'a>(&self, command: &'a Command) -> Result<Response> {
-        Ok(Response::new(command.tag(), ResponseStatus::OK, command.command(), "completed.".to_string()))
+    async fn handle<'a>(&self, command: &'a Command) -> Result<Vec<Response>> {
+        Ok(vec!(Response::new(command.tag(), ResponseStatus::OK, command.command(), "completed.".to_string())))
     }
 }
 
@@ -43,9 +43,9 @@ mod tests {
         select_success(response);
     }
 
-    fn select_success(response: Result<Response>) {
+    fn select_success(response: Result<Vec<Response>>) {
         assert_eq!(response.is_ok(), true);
-        let reply = response.unwrap();
+        let reply = &response.unwrap()[0];
         assert_eq!(reply.tag(), "a1".to_string());
         assert_eq!(reply.status(), ResponseStatus::OK);
         assert_eq!(reply.command(), "SELECT".to_string());

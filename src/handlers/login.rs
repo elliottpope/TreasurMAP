@@ -17,18 +17,18 @@ impl HandleCommand for LoginHandler {
         }
         Ok(())
     }
-    async fn handle<'a>(&self, command: &'a Command) -> Result<Response> {
+    async fn handle<'a>(&self, command: &'a Command) -> Result<Vec<Response>> {
         // TODO: implement user database lookup
         // TODO: add user to some state management
         let mut _user = command.arg(0);
         let _password = &command.arg(1);
         _user = _user.replace("\"", "");
-        Ok(Response::new(
+        Ok(vec!(Response::new(
             command.tag(),
             ResponseStatus::OK,
             command.command(),
             "completed.".to_string(),
-        ))
+        )))
     }
 }
 
@@ -83,9 +83,11 @@ mod tests {
         login_success(response);
     }
 
-    fn login_success(response: Result<Response>) {
+    fn login_success(response: Result<Vec<Response>>) {
         assert_eq!(response.is_ok(), true);
-        let reply = response.unwrap();
+        let r = response.unwrap();
+        assert_eq!(r.len(), 1 as usize);
+        let reply = &r[0];
         assert_eq!(reply.tag(), "a1".to_string());
         assert_eq!(reply.status(), ResponseStatus::OK);
         assert_eq!(reply.command(), "LOGIN".to_string());
