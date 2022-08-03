@@ -1,6 +1,6 @@
 use imap;
 use imaprust::server::{Configuration, DefaultServer};
-use imaprust::handlers::{DelegatingCommandHandler, LoginHandler};
+use imaprust::handlers::{DelegatingCommandHandler, login::LoginHandler};
 
 use std::net::TcpStream;
 
