@@ -27,6 +27,9 @@ impl HandleCommand for DelegatingCommandHandler {
     async fn validate<'a>(&self, command: &'a Command) -> Result<()> {
         let read_lock = &*self.handlers.read().await;
         for handler in read_lock {
+            if handler.name() != command.command() {
+                continue;
+            }
             match handler.validate(&command).await {
                 Ok(..) => continue,
                 Err(e) => return Err(e),
@@ -37,6 +40,9 @@ impl HandleCommand for DelegatingCommandHandler {
     async fn handle<'a>(&self, command: &'a Command) -> Result<Vec<Response>> {
         let read_lock = &*self.handlers.read().await;
         for handler in read_lock {
+            if handler.name() != command.command() {
+                continue;
+            }
             match handler.handle(&command).await {
                 Ok(response) => return Ok(response),
                 Err(..) => continue,

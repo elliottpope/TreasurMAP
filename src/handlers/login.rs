@@ -87,8 +87,6 @@ mod tests {
         let r = response.unwrap();
         assert_eq!(r.len(), 1 as usize);
         let reply = &r[0];
-        assert_eq!(reply.tag(), "a1".to_string());
-        assert_eq!(reply.status(), ResponseStatus::OK);
-        assert_eq!(reply.message(), "LOGIN completed.".to_string());
+        assert_eq!(reply, &Response::new("a1".to_string(), ResponseStatus::OK, "LOGIN completed.".to_string()));
     }
 }

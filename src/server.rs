@@ -82,12 +82,12 @@ impl Display for ResponseStatus {
     }
 }
 impl ResponseStatus {
-    pub fn from(string: String) -> ResponseStatus {
+    pub fn from(string: String) -> std::result::Result<ResponseStatus, ParseError> {
         match string.as_str() {
-            "OK" => ResponseStatus::OK,
-            "BAD" => ResponseStatus::BAD,
-            "NO" => ResponseStatus::NO,
-            &_ => ResponseStatus::NO,
+            "OK" => Ok(ResponseStatus::OK),
+            "BAD" => Ok(ResponseStatus::BAD),
+            "NO" => Ok(ResponseStatus::NO),
+            &_ => Err(ParseError{}),
         }
     }
 }
@@ -95,7 +95,7 @@ impl ResponseStatus {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Response {
     tag: String,
-    status: ResponseStatus,
+    status: Option<ResponseStatus>,
     message: String,
 }
 
@@ -103,7 +103,7 @@ impl Response {
     pub fn new(tag: String, status: ResponseStatus, message: String) -> Response {
         Response {
             tag,
-            status,
+            status: Some(status),
             message,
         }
     }
@@ -114,14 +114,17 @@ impl Response {
         }
         Ok(Response {
             tag: components[0].clone(),
-            status: ResponseStatus::from(components[1].clone()),
+            status: match ResponseStatus::from(components[1].clone()) {
+                Ok(status) => Some(status),
+                Err(_) => None,
+            },
             message: components[2].clone(),
         })
     }
     pub fn tag(&self) -> String {
         self.tag.clone()
     }
-    pub fn status(&self) -> ResponseStatus {
+    pub fn status(&self) -> Option<ResponseStatus> {
         self.status
     }
     pub fn message(&self) -> String {
@@ -131,7 +134,10 @@ impl Response {
 
 impl ToString for Response {
     fn to_string(&self) -> String {
-        format!("{} {} {}", self.tag, self.status, self.message)
+        match self.status {
+            Some(status) => format!("{} {} {}", self.tag, status, self.message),
+            None => format!("{} {}", self.tag, self.message),
+        }
     }
 }
 
