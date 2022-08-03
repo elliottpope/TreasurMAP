@@ -120,7 +120,7 @@ impl ToString for Response {
 }
 
 #[derive(Debug)]
-struct ParseError;
+pub struct ParseError;
 impl Display for ParseError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         write!(f, "ParseError")
@@ -293,10 +293,10 @@ async fn new_connection<T: HandleCommand>(stream: TcpStream, handler: Arc<T>) ->
     );
     while let Some(line) = lines.next().await {
         let line = line?;
-        println!("Read {} from client at {}", &line, &stream.peer_addr().unwrap());
+        trace!("Read {} from client at {}", &line, &stream.peer_addr().unwrap());
         let command = Command::parse(&line)?;
         let response = handler.handle(&command).await?;
-        println!("Sending {} to client at {}", &response.to_string(), &stream.peer_addr().unwrap());
+        trace!("Sending {} to client at {}", &response.to_string(), &stream.peer_addr().unwrap());
         response_sender.send(response).await.unwrap();
     }
     drop(response_sender);

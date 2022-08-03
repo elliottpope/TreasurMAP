@@ -1,5 +1,5 @@
 use crate::handlers::{HandleCommand};
-use crate::server::{Command, Response, ResponseStatus};
+use crate::server::{Command, Response, ResponseStatus, ParseError};
 use crate::util::Result;
 
 pub struct LoginHandler{}
@@ -13,7 +13,7 @@ impl HandleCommand for LoginHandler {
             ()
         }
         if command.num_args() < 2 {
-            // return error
+            return Err(Box::new(ParseError{}))
         }
         Ok(())
     }
