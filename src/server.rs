@@ -42,6 +42,13 @@ pub struct Command {
 }
 
 impl Command {
+    pub fn new(tag: String, command: String, args: Vec<String>) -> Command {
+        Command {
+            tag,
+            command,
+            args
+        }
+    }
     pub fn tag(&self) -> String {
         self.tag.clone()
     }
@@ -59,7 +66,7 @@ impl Command {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ResponseStatus {
     OK,
     BAD,
@@ -91,6 +98,18 @@ impl Response {
             command,
             message,
         }
+    }
+    pub fn tag(&self) -> String {
+        self.tag.clone()
+    }
+    pub fn command(&self) -> String {
+        self.command.clone()
+    }
+    pub fn status(&self) -> ResponseStatus {
+        self.status
+    }
+    pub fn message(&self) -> String {
+        self.message.clone()
     }
 }
 
