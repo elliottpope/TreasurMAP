@@ -18,6 +18,9 @@
 
 use std::sync::Arc;
 use std::time::Duration;
+use std::collections::VecDeque;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 
 use async_listen::{error_hint, ListenExt};
 use async_lock::RwLock;
@@ -32,32 +35,50 @@ use log::{info, trace, warn};
 
 use crate::util::{Receiver, Result, Sender};
 
-struct Command {
+pub struct Command {
     tag: String,
     command: String,
     args: Vec<String>,
 }
 
-enum ResponseStatus {
+#[derive(Debug)]
+pub enum ResponseStatus {
     OK,
     BAD,
     NO,
 }
+impl Display for ResponseStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        match self {
+            ResponseStatus::OK => write!(f, "OK"),
+            ResponseStatus::BAD => write!(f, "BAD"),
+            ResponseStatus::NO => write!(f, "NO"),
+        }
+    }
+}
 
-struct Response {
+#[derive(Debug)]
+pub struct Response {
     tag: String,
     status: ResponseStatus,
+    command: String,
     message: String,
 }
 
+impl ToString for Response {
+    fn to_string(&self) -> String {
+        format!("{} {} {} {}", self.tag, self.status, self.command, self.message)
+    }
+}
+
 #[async_trait::async_trait]
-trait HandleCommand {
+pub trait HandleCommand {
     fn name<'a>(&self) -> &'a str;
     async fn validate<'a>(&self, command: &'a Command) -> Result<()>;
     async fn handle<'a>(&self, command: &'a Command) -> Result<Response>;
 }
 
-struct DelegatingCommandHandler {
+pub struct DelegatingCommandHandler {
     handlers: Arc<RwLock<Vec<Box<dyn HandleCommand + Send + Sync>>>>,
 }
 
@@ -87,15 +108,79 @@ impl HandleCommand for DelegatingCommandHandler {
         Ok(Response {
             tag: command.tag.clone(),
             status: ResponseStatus::NO,
+            command: command.command.clone(),
             message: "Command unknown".to_string(),
         })
     }
 }
 
 impl DelegatingCommandHandler {
-    async fn register_command(&self, handler: impl HandleCommand + Send + Sync + 'static) {
+    pub fn new() -> DelegatingCommandHandler {
+        DelegatingCommandHandler {
+            handlers: Arc::new(RwLock::new(Vec::new())),
+        }
+    }
+    pub async fn register_command(&self, handler: impl HandleCommand + Send + Sync + 'static) {
         let write_lock = &mut *self.handlers.write().await;
         write_lock.push(Box::new(handler));
+    }
+}
+
+pub struct LoginHandler{}
+#[async_trait::async_trait]
+impl HandleCommand for LoginHandler {
+    fn name<'a>(&self) -> &'a str {
+        "LOGIN"
+    }
+    async fn validate<'a>(&self, command: &'a Command) -> Result<()> {
+        if command.command != self.name() {
+            ()
+        }
+        if command.args.len() < 2 {
+            // return error
+        }
+        Ok(())
+    }
+    async fn handle<'a>(&self, command: &'a Command) -> Result<Response> {
+        // TODO: implement user database lookup
+        // TODO: add user to some state management
+        let mut user = command.args[0].clone();
+        let _password = &command.args[1];
+        user = user.replace("\"", "");
+        Ok(Response {
+            tag: command.tag.clone(),
+            status: ResponseStatus::OK,
+            command: command.command.clone(),
+            message: "completed".to_string(),
+        })
+    }
+}
+
+#[derive(Debug)]
+struct ParseError;
+impl Display for ParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        write!(f, "ParseError")
+    }
+}
+impl Error for ParseError{}
+
+impl Command {
+    fn parse(cmd: &String) -> std::result::Result<Command, ParseError> {
+        let mut values: VecDeque<String> = cmd.split(" ").map(|s| s.to_string()).collect();
+        let tag = match values.pop_front() {
+            Some(t) => t,
+            None => return Err(ParseError{}),
+        };
+        let command = match values.pop_front() {
+            Some(c) => c,
+            None => return Err(ParseError{}),
+        };
+        Ok(Command {
+            tag,
+            command,
+            args: Vec::from(values),
+        })
     }
 }
 
@@ -134,6 +219,7 @@ pub trait Server {
 
 pub struct DefaultServer {
     config: Configuration,
+    handler: Arc<DelegatingCommandHandler>,
 }
 
 #[async_trait::async_trait]
@@ -155,10 +241,11 @@ impl Server for DefaultServer {
             .handle_errors(self.config.server.error_timeout)
             .backpressure(self.config.server.max_connections);
         while let Some((token, socket)) = incoming.next().await {
+            let handler = self.handler.clone();
             println!("New connection ...");
             spawn(async move {
                 let _holder = token;
-                new_connection(socket)
+                new_connection(socket, handler)
             });
         }
 
@@ -167,8 +254,11 @@ impl Server for DefaultServer {
 }
 
 impl DefaultServer {
-    pub fn new(config: Configuration) -> Self {
-        DefaultServer { config }
+    pub fn new(config: Configuration, handler: DelegatingCommandHandler) -> Self {
+        DefaultServer { 
+            config,
+            handler: Arc::new(handler),
+        }
     }
 
     pub async fn start_with_notification(&self, sender: std::sync::mpsc::Sender<()>) -> Result<()> {
@@ -194,13 +284,14 @@ impl DefaultServer {
         drop(sender);
         while let Some((token, socket)) = incoming.next().await {
             trace!("New connection from {}", &socket.peer_addr()?);
+            let handler = self.handler.clone();
             spawn(async move {
                 let _holder = token;
                 trace!(
                     "Spawning handler for new connection from {}",
                     &socket.peer_addr()?
                 );
-                new_connection(socket).await
+                new_connection(socket, handler).await
             });
         }
 
@@ -208,10 +299,10 @@ impl DefaultServer {
     }
 }
 
-async fn new_connection(stream: TcpStream) -> Result<()> {
+async fn new_connection<T: HandleCommand>(stream: TcpStream, handler: Arc<T>) -> Result<()> {
     let stream = Arc::new(stream);
     let output = Arc::clone(&stream);
-    let (mut response_sender, mut response_receiver): (Sender<String>, Receiver<String>) =
+    let (mut response_sender, mut response_receiver): (Sender<Response>, Receiver<Response>) =
         unbounded();
     trace!(
         "Spawning writer thread for connection from {}",
@@ -220,14 +311,17 @@ async fn new_connection(stream: TcpStream) -> Result<()> {
     let writer = spawn(async move {
         let mut output = &*output;
         while let Some(response) = response_receiver.next().await {
-            output.write(response.as_bytes()).await.unwrap();
-            output.write("\n".as_bytes()).await.unwrap();
+            output.write(response.to_string().as_bytes()).await.unwrap();
+            output.write("\r\n".as_bytes()).await.unwrap();
         }
     });
     info!("Sending greeting to client at {}", &stream.peer_addr()?);
-    response_sender
-        .send("* OK IMAP4rev2 server ready".to_string())
-        .await?;
+    response_sender.send(Response {
+        tag: "*".to_string(),
+        status: ResponseStatus::OK,
+        command: "IMAP4rev2".to_string(),
+        message: "server ready".to_string(),
+    }).await?;
     let input = BufReader::new(&*stream);
     let mut lines = input.lines();
     trace!(
@@ -235,10 +329,12 @@ async fn new_connection(stream: TcpStream) -> Result<()> {
         &stream.peer_addr().unwrap()
     );
     while let Some(line) = lines.next().await {
-        // let command = parse(line);
-        // let response = handle(command);
-        trace!("Read from client at {}", &stream.peer_addr().unwrap());
-        response_sender.send(line.unwrap()).await.unwrap();
+        let line = line?;
+        println!("Read {} from client at {}", &line, &stream.peer_addr().unwrap());
+        let command = Command::parse(&line)?;
+        let response = handler.handle(&command).await?;
+        println!("Sending {} to client at {}", &response.to_string(), &stream.peer_addr().unwrap());
+        response_sender.send(response).await.unwrap();
     }
     drop(response_sender);
     writer.await;
