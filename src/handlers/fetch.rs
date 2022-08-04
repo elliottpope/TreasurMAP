@@ -41,7 +41,7 @@ mod tests {
     use crate::util::Result;
 
     #[async_std::test]
-    async fn name() {
+    async fn test_fetch_success() {
         let fetch_handler = FetchHandler{};
         let fetch_command = Command::new(
             "a1".to_string(),
