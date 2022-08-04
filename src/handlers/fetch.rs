@@ -19,16 +19,15 @@ impl HandleCommand for FetchHandler {
         if command.command() != self.name() {
             ()
         }
-        if command.num_args() < 2 {
+        if command.num_args() < 1 {
             return Err(Box::new(ParseError{}))
         }
         Ok(())
     }
     async fn handle<'a>(&self, command: &'a Command) -> Result<Vec<Response>> {
-        Ok(vec!(Response::new(
-            command.tag(),
-            ResponseStatus::OK,
-            "LOGIN completed.".to_string(),
+        Ok(vec!(
+            Response::from("* 1 FETCH ....").unwrap(),
+            Response::new(command.tag(), ResponseStatus::OK, "FETCH completed.".to_string(),
         )))
     }
 }
@@ -57,7 +56,6 @@ mod tests {
     fn fetch_success(response: Result<Vec<Response>>) {
         assert_eq!(response.is_ok(), true);
         let r = response.unwrap();
-        assert_eq!(r.len(), 1 as usize);
         assert_eq!(r, vec!(
             Response::from("* 1 FETCH ....").unwrap(),
             Response::new("a1".to_string(), ResponseStatus::OK, "FETCH completed.".to_string())
