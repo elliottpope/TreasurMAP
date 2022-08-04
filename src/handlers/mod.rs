@@ -1,6 +1,7 @@
 pub mod login;
 pub mod select;
 pub mod fetch;
+pub mod logout;
 
 use std::sync::Arc;
 
