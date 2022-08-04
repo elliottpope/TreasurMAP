@@ -9,7 +9,7 @@ use crate::handlers::HandleCommand;
 use crate::server::{Command, Response, ParseError, ResponseStatus};
 use crate::util::Result;
 
-struct FetchHandler{}
+pub struct FetchHandler{}
 #[async_trait::async_trait]
 impl HandleCommand for FetchHandler {
     fn name<'a>(&self) -> &'a str {
