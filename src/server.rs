@@ -33,7 +33,7 @@ use futures::SinkExt;
 use log::{info, trace, warn};
 
 use crate::handlers::{
-    login::LoginHandler, select::SelectHandler, fetch::FetchHandler, DelegatingCommandHandler, HandleCommand,
+    login::LoginHandler, select::SelectHandler, fetch::FetchHandler, logout::LogoutHandler, DelegatingCommandHandler, HandleCommand,
 };
 use crate::util::{Receiver, Result, Sender};
 
@@ -216,6 +216,7 @@ impl Default for Server {
             delegating_handler.register_command(LoginHandler {}).await;
             delegating_handler.register_command(SelectHandler {}).await;
             delegating_handler.register_command(FetchHandler {}).await;
+            delegating_handler.register_command(LogoutHandler {}).await;
         });
         Server::new(config, delegating_handler)
     }
