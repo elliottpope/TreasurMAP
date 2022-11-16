@@ -23,19 +23,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_listen::{error_hint, ListenExt};
-use async_std::io::BufReader;
-use async_std::net::{TcpListener, TcpStream};
+use async_std::net::TcpListener;
 use async_std::prelude::*;
 use async_std::task::{block_on, spawn};
 
-use futures::channel::mpsc::unbounded;
-use futures::SinkExt;
-use log::{info, trace, warn};
+use log::{trace, warn};
 
 use crate::handlers::{
-    login::LoginHandler, select::SelectHandler, fetch::FetchHandler, logout::LogoutHandler, DelegatingCommandHandler, HandleCommand,
+    login::LoginHandler, select::SelectHandler, fetch::FetchHandler, logout::LogoutHandler, DelegatingCommandHandler,
 };
-use crate::util::{Receiver, Result, Sender};
+use crate::util::Result;
+use crate::connection::Connection;
 
 pub struct Command {
     tag: String,
@@ -157,7 +155,7 @@ impl Display for ParseError {
 impl Error for ParseError {}
 
 impl Command {
-    fn parse(cmd: &String) -> std::result::Result<Command, ParseError> {
+    pub fn parse(cmd: &String) -> std::result::Result<Command, ParseError> {
         let mut values: VecDeque<String> = cmd.split(" ").map(|s| s.to_string()).collect();
         let tag = match values.pop_front() {
             Some(t) => t,
@@ -244,7 +242,8 @@ impl Server {
             println!("New connection ...");
             spawn(async move {
                 let _holder = token;
-                new_connection(socket, handler)
+                let mut connection = Connection::new(socket).await?;
+                connection.handle(handler).await
             });
         }
 
@@ -288,65 +287,11 @@ impl Server {
                     "Spawning handler for new connection from {}",
                     &socket.peer_addr()?
                 );
-                new_connection(socket, handler).await
+                let mut connection = Connection::new(socket).await?;
+                connection.handle(handler).await
             });
         }
 
         Ok(())
     }
-}
-
-async fn new_connection<T: HandleCommand>(stream: TcpStream, handler: Arc<T>) -> Result<()> {
-    let stream = Arc::new(stream);
-    let output = Arc::clone(&stream);
-    let (mut response_sender, mut response_receiver): (
-        Sender<Vec<Response>>,
-        Receiver<Vec<Response>>,
-    ) = unbounded();
-    trace!(
-        "Spawning writer thread for connection from {}",
-        &stream.peer_addr()?
-    );
-    let writer = spawn(async move {
-        let mut output = &*output;
-        while let Some(response) = response_receiver.next().await {
-            for reply in response {
-                trace!(
-                    "Sending {} to client at {}",
-                    &reply.to_string(),
-                    &output.peer_addr().unwrap()
-                );
-                output.write(reply.to_string().as_bytes()).await.unwrap();
-                output.write("\r\n".as_bytes()).await.unwrap();
-            }
-        }
-    });
-    info!("Sending greeting to client at {}", &stream.peer_addr()?);
-    response_sender
-        .send(vec![Response::new(
-            "*".to_string(),
-            ResponseStatus::OK,
-            "IMAP4rev2 server ready".to_string(),
-        )])
-        .await?;
-    let input = BufReader::new(&*stream);
-    let mut lines = input.lines();
-    trace!(
-        "Reading input from connection at {}",
-        &stream.peer_addr().unwrap()
-    );
-    while let Some(line) = lines.next().await {
-        let line = line?;
-        trace!(
-            "Read {} from client at {}",
-            &line,
-            &stream.peer_addr().unwrap()
-        );
-        let command = Command::parse(&line)?;
-        let response = handler.handle(&command).await?;
-        response_sender.send(response).await.unwrap();
-    }
-    drop(response_sender);
-    writer.await;
-    Ok(())
 }
