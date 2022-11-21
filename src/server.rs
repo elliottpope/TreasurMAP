@@ -16,25 +16,29 @@
 
 // server.start()
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::sync::mpsc::{self, channel};
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_listen::{error_hint, ListenExt};
 use async_std::net::TcpListener;
 use async_std::prelude::*;
-use async_std::task::{block_on, spawn};
+use async_std::task::{spawn, JoinHandle};
 
+use futures::channel::mpsc::unbounded;
 use log::{trace, warn};
 
-use crate::handlers::{
-    login::LoginHandler, select::SelectHandler, fetch::FetchHandler, logout::LogoutHandler, DelegatingCommandHandler,
-};
-use crate::util::Result;
-use crate::connection::Connection;
+use crate::auth::inmemory::{InMemoryAuthenticator, InMemoryUserStore};
+use crate::auth::{AuthRequest, UserStore, Authenticate};
+use crate::connection::{Connection, Request};
+use crate::handlers::login::LoginHandler;
+use crate::handlers::Handle;
+use crate::util::{Receiver, Result, Sender};
 
+#[derive(Debug, Clone)]
 pub struct Command {
     tag: String,
     command: String,
@@ -203,61 +207,38 @@ impl Default for Configuration {
 
 pub struct Server {
     config: Configuration,
-    handler: Arc<DelegatingCommandHandler>,
+    handler: HashMap<String, Sender<Request>>,
+    user_store: Arc<Box<dyn UserStore + Send + Sync>>,
 }
 
 impl Default for Server {
     fn default() -> Server {
         let config = Configuration::default(); // TODO: add the new, from_env, and from_file options to override configs
-        let delegating_handler = DelegatingCommandHandler::new();
-        block_on(async {
-            delegating_handler.register_command(LoginHandler {}).await;
-            delegating_handler.register_command(SelectHandler {}).await;
-            delegating_handler.register_command(FetchHandler {}).await;
-            delegating_handler.register_command(LogoutHandler {}).await;
-        });
-        Server::new(config, delegating_handler)
+        let handler: HashMap<String, Sender<Request>> = HashMap::new();
+        Server::new(config, handler)
     }
 }
 
 impl Server {
-    pub async fn start(&self) -> Result<()> {
-        trace!("Server starting on {}", &self.config.server.address);
-        let listener = TcpListener::bind(&self.config.server.address).await?;
-
-        println!("Preparing to listen for connections ...");
-        let mut incoming = listener
-            .incoming()
-            .log_warnings(|e| {
-                warn!(
-                    "An error ocurred while accepting a new connection {}. {}",
-                    e,
-                    error_hint(&e)
-                )
-            })
-            .handle_errors(self.config.server.error_timeout)
-            .backpressure(self.config.server.max_connections);
-        while let Some((token, socket)) = incoming.next().await {
-            let handler = self.handler.clone();
-            println!("New connection ...");
-            spawn(async move {
-                let _holder = token;
-                let mut connection = Connection::new(socket).await?;
-                connection.handle(handler).await
-            });
-        }
-
-        Ok(())
+    pub async fn start(&mut self) -> Result<()> {
+        let (sender, _receiver) = channel();
+        self.start_with_notification(sender).await
     }
 
-    pub fn new(config: Configuration, handler: DelegatingCommandHandler) -> Self {
-        Server {
-            config,
-            handler: Arc::new(handler),
+    pub fn new(config: Configuration, handler: HashMap<String, Sender<Request>>) -> Self {
+        Server { 
+            config, 
+            handler, 
+            user_store: Arc::new(Box::new(InMemoryUserStore::new())), 
         }
     }
 
-    pub async fn start_with_notification(&self, sender: std::sync::mpsc::Sender<()>) -> Result<()> {
+    pub fn with_user_store<T:UserStore + Send + Sync + 'static>(mut self, user_store: T) -> Self {
+        self.user_store = Arc::new(Box::new(user_store));
+        self
+    }
+
+    pub async fn start_with_notification(&mut self, sender: mpsc::Sender<()>) -> Result<()> {
         trace!("Server starting on {}", &self.config.server.address);
         let listener = TcpListener::bind(&self.config.server.address).await?;
 
@@ -276,6 +257,12 @@ impl Server {
             })
             .handle_errors(self.config.server.error_timeout)
             .backpressure(self.config.server.max_connections);
+        
+        let (authenticator, auth_loop) = self.init_auth();
+        let login = LoginHandler::new(authenticator);
+
+        let handlers = self.start_handlers(vec![login]);
+
         sender.send(())?;
         drop(sender);
         while let Some((token, socket)) = incoming.next().await {
@@ -288,10 +275,37 @@ impl Server {
                     &socket.peer_addr()?
                 );
                 let mut connection = Connection::new(socket).await?;
-                connection.handle(handler).await
+                connection.handle(&handler).await
             });
         }
+        for handler in handlers {
+            handler.await?;
+        }
+        auth_loop.await?;
 
         Ok(())
+    }
+
+    fn start_handlers<T: Handle + Send + Sync + 'static>(&mut self, handlers: Vec<T>) -> Vec<JoinHandle<Result<()>>> {
+        handlers.into_iter().map(|mut handler| {
+            let (requests, receiver): (Sender<Request>, Receiver<Request>) = unbounded();
+            let cmd = handler.command();
+            self.handler.insert(cmd.to_string(), requests);
+            spawn(async move { handler.start(receiver).await })
+        }).collect()
+    }
+
+    fn init_auth(&mut self) -> (impl Authenticate, JoinHandle<Result<()>>) {
+        let user_store = self.user_store.clone();
+
+        let (auth_requests, auth_requests_receiver): (Sender<AuthRequest>, Receiver<AuthRequest>) =
+            unbounded();
+        let authenticator = InMemoryAuthenticator {
+            requests: auth_requests,
+        };
+        let handle = spawn(
+            async move { InMemoryAuthenticator::start(user_store, auth_requests_receiver).await },
+        );
+        return (authenticator, handle)
     }
 }
