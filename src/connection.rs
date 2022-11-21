@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_std::{
@@ -13,12 +14,21 @@ use log::{info, trace};
 
 use crate::server::{Command, Response, ResponseStatus};
 use crate::util::{Result, Receiver, Sender};
-use crate::handlers::HandleCommand;
 
 pub struct Connection {
     writer: Option<JoinHandle<()>>,
     stream: Arc<TcpStream>,
     responder: Sender<Vec<Response>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Context{}
+
+#[derive(Debug, Clone)]
+pub struct Request {
+    pub command: Command,
+    pub responder: Sender<Vec<Response>>,
+    pub context: Context,
 }
 
 impl Connection {
@@ -66,7 +76,7 @@ impl Connection {
         })
     }
 
-    pub async fn handle<T:HandleCommand>(&mut self, handler: Arc<T>) -> Result<()> {
+    pub async fn handle(&mut self, handler: &HashMap<String, Sender<Request>>) -> Result<()> {
         let input = BufReader::new(&*self.stream);
         let mut lines = input.lines();
         while let Some(line) = lines.next().await {
@@ -77,8 +87,9 @@ impl Connection {
                 &self.stream.peer_addr().unwrap()
             );
             let command = Command::parse(&line)?;
-            let response = handler.handle(&command).await?;
-            self.responder.send(response).await.unwrap();
+            if let Some(mut channel) = handler.get(&command.command()) {
+                channel.send(Request{command, responder: self.responder.clone(), context: Context{}}).await?;
+            };
         }
         drop(&self.responder);
         if let Some(writer) = self.writer.take() {

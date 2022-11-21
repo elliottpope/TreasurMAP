@@ -7,8 +7,15 @@ use std::sync::Arc;
 
 use async_lock::RwLock;
 
-use crate::util::{Result};
+use crate::connection::Request;
+use crate::util::{Result, Receiver};
 use crate::server::{Command, Response, ResponseStatus};
+
+#[async_trait::async_trait]
+pub trait Handle {
+    fn command<'a>(&self) -> &'a str;
+    async fn start<'a>(&'a mut self, requests: Receiver<Request>) -> Result<()>;
+}
 
 #[async_trait::async_trait]
 pub trait HandleCommand {
