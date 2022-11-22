@@ -133,11 +133,11 @@ mod tests {
         }
     }
 
-    async fn test_login<F: FnOnce(Vec<Response>)>(command: Command, assertions: F) {
+    async fn test_login<F: FnOnce(Vec<Response>)>(command: Command, assertions: F, should_auth: bool) {
         let authenticator = TestAuthenticator {};
         let login_handler = LoginHandler::new(authenticator);
 
-        test_handle(login_handler, command, assertions, Some(|event| {
+        let mut event_assertions = Some(|event| {
             match event {
                 Event::AUTH(user) => {
                     assert_eq!(user.name(), EMAIL);
@@ -146,7 +146,11 @@ mod tests {
                     panic!("SELECT event should not be sent by LoginHandler")
                 }
             }
-        }), None).await;
+        });
+        if !should_auth {
+            event_assertions.take();
+        }
+        test_handle(login_handler, command, assertions, event_assertions, None).await;
         
     }
 
@@ -157,7 +161,7 @@ mod tests {
             "LOGIN",
             vec![EMAIL, "password"],
         );
-        test_login(login_command, login_success).await;
+        test_login(login_command, login_success, true).await;
     }
 
     #[async_std::test]
@@ -167,7 +171,7 @@ mod tests {
             "login",
             vec![EMAIL, "password"],
         );
-        test_login(login_command, login_success).await;
+        test_login(login_command, login_success, true).await;
     }
 
     #[async_std::test]
@@ -177,7 +181,7 @@ mod tests {
             "Login",
             vec![EMAIL, "password"],
         );
-        test_login(login_command, login_success).await;
+        test_login(login_command, login_success, true).await;
     }
 
     fn login_success(response: Vec<Response>) {
@@ -200,7 +204,7 @@ mod tests {
             "LOGIN",
             vec!["not.a.user@domain.com", "password"],
         );
-        test_login(login_command, login_failed).await;
+        test_login(login_command, login_failed, false).await;
     }
 
     #[async_std::test]
@@ -221,7 +225,7 @@ mod tests {
                     "insufficient arguments"
                 )
             );
-        })
+        }, false)
         .await;
     }
 
