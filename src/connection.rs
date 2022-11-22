@@ -62,7 +62,7 @@ impl Connection {
             .send(vec![Response::new(
                 "*".to_string(),
                 ResponseStatus::OK,
-                "IMAP4rev2 server ready".to_string(),
+                "IMAP4rev2 server ready",
             )])
             .await?;
         trace!(

@@ -40,7 +40,7 @@ impl HandleCommand for FetchHandler {
             Response::new(
                 command.tag(),
                 ResponseStatus::OK,
-                "FETCH completed.".to_string(),
+                "FETCH completed.",
             ),
         ])
     }
@@ -59,7 +59,7 @@ impl Handle for FetchHandler {
                     .send(vec![Response::new(
                         request.command.tag(),
                         ResponseStatus::BAD,
-                        "insufficient arguments".to_string(),
+                        "insufficient arguments",
                     )])
                     .await?;
                 continue;
@@ -72,7 +72,7 @@ impl Handle for FetchHandler {
                     Response::new(
                         request.command.tag(),
                         ResponseStatus::OK,
-                        "FETCH completed.".to_string(),
+                        "FETCH completed.",
                     ),
                 ])
                 .await?;
@@ -114,7 +114,7 @@ mod tests {
                 Response::new(
                     "a1".to_string(),
                     ResponseStatus::OK,
-                    "FETCH completed.".to_string()
+                    "FETCH completed."
                 )
             )
         );

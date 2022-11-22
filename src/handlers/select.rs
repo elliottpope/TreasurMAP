@@ -41,7 +41,7 @@ impl HandleCommand for SelectHandler {
             Response::from("* FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft)").unwrap(),
             Response::from("* OK [PERMANENTFLAGS (\\Deleted \\Seen \\*)] Limited").unwrap(),
             Response::from("* LIST () \"/\" INBOX").unwrap(),
-            Response::new(command.tag(), ResponseStatus::OK, "[READ-WRITE] SELECT completed.".to_string()),
+            Response::new(command.tag(), ResponseStatus::OK, "[READ-WRITE] SELECT completed."),
         ))
     }
 }
@@ -58,7 +58,7 @@ impl Handle for SelectHandler {
                     .send(vec![Response::new(
                         request.command.tag(),
                         ResponseStatus::BAD,
-                        "insufficient arguments".to_string(),
+                        "insufficient arguments",
                     )])
                     .await?;
                 continue;
@@ -70,7 +70,7 @@ impl Handle for SelectHandler {
                 Response::from("* FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft)").unwrap(),
                 Response::from("* OK [PERMANENTFLAGS (\\Deleted \\Seen \\*)] Limited").unwrap(),
                 Response::from("* LIST () \"/\" INBOX").unwrap(),
-                Response::new(request.command.tag(), ResponseStatus::OK, "[READ-WRITE] SELECT completed.".to_string()),
+                Response::new(request.command.tag(), ResponseStatus::OK, "[READ-WRITE] SELECT completed."),
             )).await?;
         }
         Ok(())
@@ -122,7 +122,7 @@ mod tests {
         );
         test_handle(select_handler, command, |response| {
             assert_eq!(response.len(), 1);
-            assert_eq!(response[0], Response::new("a1".to_string(), ResponseStatus::BAD, "insufficient arguments".to_string()));
+            assert_eq!(response[0], Response::new("a1".to_string(), ResponseStatus::BAD, "insufficient arguments"));
         }).await;
     }
 
@@ -134,6 +134,6 @@ mod tests {
             Response::from("* FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft)").unwrap(),
             Response::from("* OK [PERMANENTFLAGS (\\Deleted \\Seen \\*)] Limited").unwrap(),
             Response::from("* LIST () \"/\" INBOX").unwrap(),
-            Response::new("a1".to_string(), ResponseStatus::OK, "[READ-WRITE] SELECT completed.".to_string())));
+            Response::new("a1".to_string(), ResponseStatus::OK, "[READ-WRITE] SELECT completed.")));
     }
 }

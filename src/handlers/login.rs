@@ -34,7 +34,7 @@ impl<T: Authenticate + Send + Sync> HandleCommand for LoginHandler<T> {
         Ok(vec![Response::new(
             command.tag(),
             ResponseStatus::OK,
-            "LOGIN completed.".to_string(),
+            "LOGIN completed.",
         )])
     }
 }
@@ -56,7 +56,7 @@ impl<T: Authenticate + Send + Sync, 'a> Handle for LoginHandler<T> {
                     .send(vec![Response::new(
                         request.command.tag(),
                         ResponseStatus::BAD,
-                        "insufficient arguments".to_string(),
+                        "insufficient arguments",
                     )])
                     .await?;
                 continue;
@@ -76,7 +76,7 @@ impl<T: Authenticate + Send + Sync, 'a> Handle for LoginHandler<T> {
                         .send(vec![Response::new(
                             request.command.tag(),
                             ResponseStatus::OK,
-                            format!("LOGIN completed. Welcome {}.", &result.name()).to_string(),
+                            &format!("LOGIN completed. Welcome {}.", &result.name()),
                         )])
                         .await?;
                 }
@@ -86,7 +86,7 @@ impl<T: Authenticate + Send + Sync, 'a> Handle for LoginHandler<T> {
                         .send(vec![Response::new(
                             request.command.tag(),
                             ResponseStatus::BAD,
-                            "LOGIN failed.".to_string(),
+                            "LOGIN failed.",
                         )])
                         .await?;
                 }
@@ -176,7 +176,7 @@ mod tests {
             &Response::new(
                 "a1".to_string(),
                 ResponseStatus::OK,
-                "LOGIN completed. Welcome my@email.com.".to_string()
+                "LOGIN completed. Welcome my@email.com."
             )
         );
     }
@@ -206,7 +206,7 @@ mod tests {
                 &Response::new(
                     "a1".to_string(),
                     ResponseStatus::BAD,
-                    "insufficient arguments".to_string()
+                    "insufficient arguments"
                 )
             );
         })
@@ -221,7 +221,7 @@ mod tests {
             &Response::new(
                 "a1".to_string(),
                 ResponseStatus::BAD,
-                "LOGIN failed.".to_string()
+                "LOGIN failed."
             )
         );
     }
