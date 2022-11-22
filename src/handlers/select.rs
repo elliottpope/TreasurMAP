@@ -113,7 +113,7 @@ mod tests {
         );
 
         let ctx = Context::of(Some(User::new("username", "password")), None);
-        test_handle(select_handler, command, select_success, |event| {
+        test_handle(select_handler, command, select_success, Some(|event| {
             match event {
                 Event::SELECT(folder) => {
                     assert_eq!(folder, PathBuf::from("INBOX"))
@@ -122,7 +122,7 @@ mod tests {
                     panic!("SELECT command should not send an AUTH event");
                 }
             }
-        }, Some(ctx)).await;
+        }), Some(ctx)).await;
     }
 
     #[async_std::test]
@@ -134,10 +134,12 @@ mod tests {
             vec!["INBOX"],
         );
 
+        let mut f = Some(|_event|{});
+        f.take();
         test_handle(select_handler, command, |response| {
             assert_eq!(response.len(), 1);
             assert_eq!(response[0], Response::new("a1", ResponseStatus::BAD, "cannot SELECT when un-authenticated. Please authenticate using LOGIN or AUTHENTICATE."));
-        }, |_|{}, None).await;
+        }, f, None).await;
     }
 
     #[async_std::test]
@@ -149,10 +151,12 @@ mod tests {
             "SELECT",
             vec![],
         );
+        let mut f = Some(|_event|{});
+        f.take();
         test_handle(select_handler, command, |response| {
             assert_eq!(response.len(), 1);
             assert_eq!(response[0], Response::new("a1", ResponseStatus::BAD, "insufficient arguments"));
-        }, |_|{}, None).await;
+        }, f, None).await;
     }
 
     fn select_success(response: Vec<Response>) {

@@ -92,11 +92,15 @@ pub mod tests {
 
     use super::Handle;
 
-    pub async fn test_handle<T: Handle + Send + Sync + 'static, F: FnOnce(Vec<Response>), S: FnOnce(Event)>(
+    pub async fn test_handle<
+        T: Handle + Send + Sync + 'static,
+        F: FnOnce(Vec<Response>),
+        S: FnOnce(Event),
+    >(
         mut handler: T,
         command: Command,
         assertions: F,
-        event_assertions: S,
+        event_assertions: Option<S>,
         state: Option<Context>,
     ) {
         let (mut requests, requests_receiver): (
@@ -122,8 +126,11 @@ pub mod tests {
         if let Some(response) = responses.next().await {
             assertions(response);
         }
-        if let Some(event) = event_handler.next().await {
-            event_assertions(event);
+        if let Some(func) = event_assertions {
+            match event_handler.next().await {
+                Some(event) => func(event),
+                None => panic!("At least one event should have been sent"),
+            }
         }
         drop(requests);
         handle.await.unwrap();

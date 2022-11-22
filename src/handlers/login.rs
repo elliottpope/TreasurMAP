@@ -135,7 +135,7 @@ mod tests {
         let authenticator = TestAuthenticator {};
         let login_handler = LoginHandler::new(authenticator);
 
-        test_handle(login_handler, command, assertions, |event| {
+        test_handle(login_handler, command, assertions, Some(|event| {
             match event {
                 Event::AUTH(user) => {
                     assert_eq!(user.name(), EMAIL);
@@ -144,7 +144,7 @@ mod tests {
                     panic!("SELECT event should not be sent by LoginHandler")
                 }
             }
-        }, None).await;
+        }), None).await;
         
     }
 

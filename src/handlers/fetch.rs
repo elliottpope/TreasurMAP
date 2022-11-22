@@ -106,7 +106,10 @@ mod tests {
     async fn test_fetch_handle() {
         let handler = FetchHandler {};
         let command = Command::new("a1", "FETCH", vec!["1"]);
-        test_handle(handler, command, fetch_success, |_|{}, None).await;
+
+        let mut f = Some(|_event|{});
+        f.take();
+        test_handle(handler, command, fetch_success, f, None).await;
     }
 
     #[async_std::test]
@@ -114,10 +117,13 @@ mod tests {
         let handler = FetchHandler {};
         let command = Command::new("a1", "FETCH", vec!["1"]);
         let ctx = Context::of(Some(User::new("username", "password")), None);
+
+        let mut f = Some(|_event|{});
+        f.take();
         test_handle(handler, command, |response| {
             assert_eq!(response.len(), 1 as usize);
             assert_eq!(response[0], Response::new("a1", ResponseStatus::NO, "cannot FETCH before SELECT. Please SELECT a folder."))
-        }, |_|{}, Some(ctx)).await;
+        }, f, Some(ctx)).await;
     }
 
     #[async_std::test]
@@ -125,10 +131,13 @@ mod tests {
         let handler = FetchHandler {};
         let command = Command::new("a1", "FETCH", vec!["1"]);
         let ctx = Context::of(None, Some(PathBuf::from("/this/is/a/folder")));
+
+        let mut f = Some(|_event|{});
+        f.take();
         test_handle(handler, command, |response| {
             assert_eq!(response.len(), 1 as usize);
             assert_eq!(response[0], Response::new("a1", ResponseStatus::NO, "cannot FETCH when un-authenticated. Please authenticate using LOGIN or AUTHENTICATE."))
-        }, |_|{}, Some(ctx)).await;
+        }, f, Some(ctx)).await;
     }
 
     fn fetch_success(response: Vec<Response>) {
