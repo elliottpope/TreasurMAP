@@ -23,7 +23,7 @@ impl HandleCommand for LogoutHandler {
         Ok(vec![Response::new(
             command.tag(),
             ResponseStatus::OK,
-            "LOGOUT completed.",
+            "LOGOUT completed. Goodbye!",
         )])
     }
 }
@@ -90,7 +90,7 @@ mod tests {
             &Response::new(
                 "a1".to_string(),
                 ResponseStatus::OK,
-                "LOGOUT completed."
+                "LOGOUT completed. Goodbye!"
             )
         );
     }
