@@ -37,11 +37,7 @@ impl HandleCommand for FetchHandler {
     async fn handle<'a>(&self, command: &'a Command) -> Result<Vec<Response>> {
         Ok(vec![
             Response::from("* 1 FETCH (BODY[TEXT] {26}\r\nThis is a test email body.)").unwrap(),
-            Response::new(
-                &command.tag(),
-                ResponseStatus::OK,
-                "FETCH completed.",
-            ),
+            Response::new(&command.tag(), ResponseStatus::OK, "FETCH completed."),
         ])
     }
 }
@@ -128,10 +124,14 @@ mod tests {
     async fn test_fetch_handle() {
         let handler = FetchHandler {};
         let command = Command::new("a1", "FETCH", vec!["1"]);
+        let ctx = Context::of(
+            Some(User::new("username", "password")),
+            Some(PathBuf::from("/this/is/a/folder")),
+        );
 
-        let mut f = Some(|_event|{});
+        let mut f = Some(|_event| {});
         f.take();
-        test_handle(handler, command, fetch_success, f, None).await;
+        test_handle(handler, command, fetch_success, f, Some(ctx)).await;
     }
 
     #[async_std::test]
@@ -140,12 +140,26 @@ mod tests {
         let command = Command::new("a1", "FETCH", vec!["1"]);
         let ctx = Context::of(Some(User::new("username", "password")), None);
 
-        let mut f = Some(|_event|{});
+        let mut f = Some(|_event| {});
         f.take();
-        test_handle(handler, command, |response| {
-            assert_eq!(response.len(), 1 as usize);
-            assert_eq!(response[0], Response::new("a1", ResponseStatus::NO, "cannot FETCH before SELECT. Please SELECT a folder."))
-        }, f, Some(ctx)).await;
+        test_handle(
+            handler,
+            command,
+            |response| {
+                assert_eq!(response.len(), 1 as usize);
+                assert_eq!(
+                    response[0],
+                    Response::new(
+                        "a1",
+                        ResponseStatus::NO,
+                        "cannot FETCH before SELECT. Please SELECT a folder."
+                    )
+                )
+            },
+            f,
+            Some(ctx),
+        )
+        .await;
     }
 
     #[async_std::test]
@@ -154,7 +168,7 @@ mod tests {
         let command = Command::new("a1", "FETCH", vec!["1"]);
         let ctx = Context::of(None, Some(PathBuf::from("/this/is/a/folder")));
 
-        let mut f = Some(|_event|{});
+        let mut f = Some(|_event| {});
         f.take();
         test_handle(handler, command, |response| {
             assert_eq!(response.len(), 1 as usize);
@@ -168,11 +182,7 @@ mod tests {
             vec!(
                 Response::from("* 1 FETCH (BODY[TEXT] {26}\r\nThis is a test email body.)")
                     .unwrap(),
-                Response::new(
-                    "a1",
-                    ResponseStatus::OK,
-                    "FETCH completed."
-                )
+                Response::new("a1", ResponseStatus::OK, "FETCH completed.")
             )
         );
     }
