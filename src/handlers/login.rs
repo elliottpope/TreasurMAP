@@ -1,6 +1,6 @@
 use futures::{SinkExt, StreamExt};
 
-use crate::auth::{Authenticate, User};
+use crate::auth::{Authenticate, BasicAuth};
 use crate::connection::Request;
 use crate::handlers::HandleCommand;
 use crate::server::{Command, ParseError, Response, ResponseStatus};
@@ -61,9 +61,10 @@ impl<T: Authenticate + Send + Sync, 'a> Handle for LoginHandler<T> {
                     .await?;
             }
             let mut user = request.command.arg(0);
-            let _password = &request.command.arg(1);
+            let password = &request.command.arg(1);
             user = user.replace("\"", "");
-            let response = self.authenticator.authenticate(User { name: user }).await;
+            // TODO: handle password hashing error
+            let response = self.authenticator.authenticate(BasicAuth::from(&user, &password)).await;
             match response.await? {
                 Ok(result) => {
                     request
@@ -71,7 +72,7 @@ impl<T: Authenticate + Send + Sync, 'a> Handle for LoginHandler<T> {
                         .send(vec![Response::new(
                             request.command.tag(),
                             ResponseStatus::OK,
-                            format!("LOGIN completed. Welcome {}.", &result.name).to_string(),
+                            format!("LOGIN completed. Welcome {}.", &result.name()).to_string(),
                         )])
                         .await?;
                 }
@@ -100,7 +101,8 @@ mod tests {
     use futures::SinkExt;
 
     use super::LoginHandler;
-    use crate::auth::{Authenticate, User, UserDoesNotExist};
+    use crate::auth::error::UserDoesNotExist;
+    use crate::auth::{Authenticate, User, AuthenticationPrincipal, Password};
     use crate::connection::{Context, Request};
     use crate::handlers::{Handle};
     use crate::server::{Command, Response, ResponseStatus};
@@ -109,12 +111,12 @@ mod tests {
     struct TestAuthenticator {}
     #[async_trait::async_trait]
     impl Authenticate for TestAuthenticator {
-        async fn authenticate(&mut self, user: User) -> Receiver<Result<User>> {
+        async fn authenticate<T:AuthenticationPrincipal + Send + Sync>(&mut self, user: T) -> Receiver<Result<User>> {
             let (sender, receiver): (Sender<Result<User>>, Receiver<Result<User>>) = channel();
-            if user.name == "my@email.com" {
-                sender.send(Ok(user)).unwrap();
+            if user.principal() == "my@email.com" {
+                sender.send(Ok(User::new(&user.principal(), "password"))).unwrap();
             } else {
-                sender.send(Err(UserDoesNotExist::new(&user.name))).unwrap();
+                sender.send(Err(UserDoesNotExist::new(&user.principal()))).unwrap();
             }
             receiver
         }
