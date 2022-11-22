@@ -38,7 +38,7 @@ use crate::handlers::login::LoginHandler;
 use crate::handlers::Handle;
 use crate::util::{Receiver, Result, Sender};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Command {
     tag: String,
     command: String,
@@ -46,11 +46,11 @@ pub struct Command {
 }
 
 impl Command {
-    pub fn new(tag: String, command: String, args: Vec<String>) -> Command {
+    pub fn new(tag: &str, command: &str, args: Vec<&str>) -> Command {
         Command {
-            tag,
+            tag: tag.to_string(),
             command: command.to_uppercase(),
-            args,
+            args: args.iter().map(|arg| arg.to_string()).collect(),
         }
     }
     pub fn tag(&self) -> String {
@@ -159,7 +159,7 @@ impl Display for ParseError {
 impl Error for ParseError {}
 
 impl Command {
-    pub fn parse(cmd: &String) -> std::result::Result<Command, ParseError> {
+    pub fn parse(cmd: &str) -> std::result::Result<Command, ParseError> {
         let mut values: VecDeque<String> = cmd.split(" ").map(|s| s.to_string()).collect();
         let tag = match values.pop_front() {
             Some(t) => t,
@@ -169,6 +169,13 @@ impl Command {
             Some(c) => c,
             None => return Err(ParseError {}),
         };
+        values = values.iter().map(|arg| {
+            let length = arg.len();
+            if arg.starts_with("\"") && arg.ends_with("\"") || arg.starts_with("'") && arg.ends_with("'") {
+                return arg[1..length-1].to_string()
+            }
+            return arg.to_string()
+        }).collect();
         Ok(Command {
             tag,
             command,
@@ -307,5 +314,17 @@ impl Server {
             async move { InMemoryAuthenticator::start(user_store, auth_requests_receiver).await },
         );
         return (authenticator, handle)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Command;
+
+    #[test]
+    fn test_can_strip_quotes_from_command() {
+        let cmd = Command::parse("a1 LOGIN 'me@email.com' \"password\"");
+        assert!(cmd.is_ok());
+        assert_eq!(cmd.unwrap(), Command::new("a1", "LOGIN", vec!["me@email.com", "password"]));
     }
 }
