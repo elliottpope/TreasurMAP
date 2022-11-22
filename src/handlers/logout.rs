@@ -21,7 +21,7 @@ impl HandleCommand for LogoutHandler {
     }
     async fn handle<'a>(&self, command: &'a Command) -> Result<Vec<Response>> {
         Ok(vec![Response::new(
-            command.tag(),
+            &command.tag(),
             ResponseStatus::OK,
             "LOGOUT completed. Goodbye!",
         )])
@@ -38,7 +38,7 @@ impl Handle for LogoutHandler {
                 request
                     .responder
                     .send(vec![Response::new(
-                        request.command.tag(),
+                        &request.command.tag(),
                         ResponseStatus::BAD,
                         "cannot understand LOGOUT command provided",
                     )])
@@ -48,7 +48,7 @@ impl Handle for LogoutHandler {
             request
                 .responder
                 .send(vec![Response::new(
-                    request.command.tag(),
+                    &request.command.tag(),
                     ResponseStatus::OK,
                     "LOGOUT completed. Goodbye!",
                 )])
@@ -88,7 +88,7 @@ mod tests {
         assert_eq!(
             reply,
             &Response::new(
-                "a1".to_string(),
+                "a1",
                 ResponseStatus::OK,
                 "LOGOUT completed. Goodbye!"
             )

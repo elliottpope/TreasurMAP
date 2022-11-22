@@ -46,6 +46,9 @@ impl Context {
     pub fn is_selected(&self) -> bool {
         self.current_folder.is_some()
     }
+    pub fn of(user: Option<User>, folder: Option<PathBuf>) -> Self {
+        Self { current_folder: folder, user }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -104,7 +107,7 @@ impl Connection {
         info!("Sending greeting to client at {}", &stream.peer_addr()?);
         response_sender
             .send(vec![Response::new(
-                "*".to_string(),
+                "*",
                 ResponseStatus::OK,
                 "IMAP4rev2 server ready",
             )])

@@ -32,7 +32,7 @@ impl<T: Authenticate + Send + Sync> HandleCommand for LoginHandler<T> {
         let _password = &command.arg(1);
         _user = _user.replace("\"", "");
         Ok(vec![Response::new(
-            command.tag(),
+            &command.tag(),
             ResponseStatus::OK,
             "LOGIN completed.",
         )])
@@ -54,7 +54,7 @@ impl<T: Authenticate + Send + Sync, 'a> Handle for LoginHandler<T> {
                 request
                     .responder
                     .send(vec![Response::new(
-                        request.command.tag(),
+                        &request.command.tag(),
                         ResponseStatus::BAD,
                         "insufficient arguments",
                     )])
@@ -74,7 +74,7 @@ impl<T: Authenticate + Send + Sync, 'a> Handle for LoginHandler<T> {
                     request
                         .responder
                         .send(vec![Response::new(
-                            request.command.tag(),
+                            &request.command.tag(),
                             ResponseStatus::OK,
                             &format!("LOGIN completed. Welcome {}.", &result.name()),
                         )])
@@ -84,7 +84,7 @@ impl<T: Authenticate + Send + Sync, 'a> Handle for LoginHandler<T> {
                     request
                         .responder
                         .send(vec![Response::new(
-                            request.command.tag(),
+                            &request.command.tag(),
                             ResponseStatus::BAD,
                             "LOGIN failed.",
                         )])
@@ -103,6 +103,7 @@ mod tests {
     use super::LoginHandler;
     use crate::auth::error::UserDoesNotExist;
     use crate::auth::{Authenticate, AuthenticationPrincipal, User};
+    use crate::connection::Event;
     use crate::handlers::tests::test_handle;
     use crate::server::{Command, Response, ResponseStatus};
     use crate::util::Result;
@@ -134,7 +135,16 @@ mod tests {
         let authenticator = TestAuthenticator {};
         let login_handler = LoginHandler::new(authenticator);
 
-        test_handle(login_handler, command, assertions, |_|{}, None).await;
+        test_handle(login_handler, command, assertions, |event| {
+            match event {
+                Event::AUTH(user) => {
+                    assert_eq!(user.name(), EMAIL);
+                },
+                Event::SELECT(..) => {
+                    panic!("SELECT event should not be sent by LoginHandler")
+                }
+            }
+        }, None).await;
         
     }
 
@@ -174,7 +184,7 @@ mod tests {
         assert_eq!(
             reply,
             &Response::new(
-                "a1".to_string(),
+                "a1",
                 ResponseStatus::OK,
                 "LOGIN completed. Welcome my@email.com."
             )
@@ -204,7 +214,7 @@ mod tests {
             assert_eq!(
                 reply,
                 &Response::new(
-                    "a1".to_string(),
+                    "a1",
                     ResponseStatus::BAD,
                     "insufficient arguments"
                 )
@@ -219,7 +229,7 @@ mod tests {
         assert_eq!(
             reply,
             &Response::new(
-                "a1".to_string(),
+                "a1",
                 ResponseStatus::BAD,
                 "LOGIN failed."
             )

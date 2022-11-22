@@ -41,7 +41,7 @@ impl HandleCommand for SelectHandler {
             Response::from("* FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft)").unwrap(),
             Response::from("* OK [PERMANENTFLAGS (\\Deleted \\Seen \\*)] Limited").unwrap(),
             Response::from("* LIST () \"/\" INBOX").unwrap(),
-            Response::new(command.tag(), ResponseStatus::OK, "[READ-WRITE] SELECT completed."),
+            Response::new(&command.tag(), ResponseStatus::OK, "[READ-WRITE] SELECT completed."),
         ))
     }
 }
@@ -56,7 +56,7 @@ impl Handle for SelectHandler {
                 request
                     .responder
                     .send(vec![Response::new(
-                        request.command.tag(),
+                        &request.command.tag(),
                         ResponseStatus::BAD,
                         "insufficient arguments",
                     )])
@@ -70,7 +70,7 @@ impl Handle for SelectHandler {
                 Response::from("* FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft)").unwrap(),
                 Response::from("* OK [PERMANENTFLAGS (\\Deleted \\Seen \\*)] Limited").unwrap(),
                 Response::from("* LIST () \"/\" INBOX").unwrap(),
-                Response::new(request.command.tag(), ResponseStatus::OK, "[READ-WRITE] SELECT completed."),
+                Response::new(&request.command.tag(), ResponseStatus::OK, "[READ-WRITE] SELECT completed."),
             )).await?;
         }
         Ok(())
@@ -81,6 +81,8 @@ impl Handle for SelectHandler {
 #[cfg(test)]
 mod tests {
     use super::SelectHandler;
+    use crate::auth::User;
+    use crate::connection::Context;
     use crate::handlers::tests::test_handle;
     use crate::handlers::{HandleCommand};
     use crate::server::{Command, ResponseStatus, Response};
@@ -108,7 +110,23 @@ mod tests {
             vec!["INBOX"],
         );
 
-        test_handle(select_handler, command, select_success, |_|{}, None).await;
+        let ctx = Context::of(Some(User::new("username", "password")), None);
+        test_handle(select_handler, command, select_success, |_|{}, Some(ctx)).await;
+    }
+
+    #[async_std::test]
+    async fn test_cannot_select_if_unauthenticated() {
+        let select_handler = SelectHandler{};
+        let command = Command::new(
+            "a1",
+            "SELECT",
+            vec!["INBOX"],
+        );
+
+        test_handle(select_handler, command, |response| {
+            assert_eq!(response.len(), 1);
+            assert_eq!(response[0], Response::new("a1", ResponseStatus::BAD, "cannot SELECT when un-authenticated. Please authenticate using LOGIN or AUTHENTICATE."));
+        }, |_|{}, None).await;
     }
 
     #[async_std::test]
@@ -122,7 +140,7 @@ mod tests {
         );
         test_handle(select_handler, command, |response| {
             assert_eq!(response.len(), 1);
-            assert_eq!(response[0], Response::new("a1".to_string(), ResponseStatus::BAD, "insufficient arguments"));
+            assert_eq!(response[0], Response::new("a1", ResponseStatus::BAD, "insufficient arguments"));
         }, |_|{}, None).await;
     }
 
@@ -134,6 +152,6 @@ mod tests {
             Response::from("* FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft)").unwrap(),
             Response::from("* OK [PERMANENTFLAGS (\\Deleted \\Seen \\*)] Limited").unwrap(),
             Response::from("* LIST () \"/\" INBOX").unwrap(),
-            Response::new("a1".to_string(), ResponseStatus::OK, "[READ-WRITE] SELECT completed.")));
+            Response::new("a1", ResponseStatus::OK, "[READ-WRITE] SELECT completed.")));
     }
 }

@@ -38,7 +38,7 @@ impl HandleCommand for FetchHandler {
         Ok(vec![
             Response::from("* 1 FETCH (BODY[TEXT] {26}\r\nThis is a test email body.)").unwrap(),
             Response::new(
-                command.tag(),
+                &command.tag(),
                 ResponseStatus::OK,
                 "FETCH completed.",
             ),
@@ -57,7 +57,7 @@ impl Handle for FetchHandler {
                 request
                     .responder
                     .send(vec![Response::new(
-                        request.command.tag(),
+                        &request.command.tag(),
                         ResponseStatus::BAD,
                         "insufficient arguments",
                     )])
@@ -70,7 +70,7 @@ impl Handle for FetchHandler {
                     Response::from("* 1 FETCH (BODY[TEXT] {26}\r\nThis is a test email body.)")
                         .unwrap(),
                     Response::new(
-                        request.command.tag(),
+                        &request.command.tag(),
                         ResponseStatus::OK,
                         "FETCH completed.",
                     ),
@@ -83,7 +83,11 @@ impl Handle for FetchHandler {
 
 #[cfg(test)]
 mod tests {
+    use async_std::path::PathBuf;
+
     use super::FetchHandler;
+    use crate::auth::User;
+    use crate::connection::Context;
     use crate::handlers::tests::test_handle;
     use crate::handlers::HandleCommand;
     use crate::server::{Command, Response, ResponseStatus};
@@ -105,6 +109,28 @@ mod tests {
         test_handle(handler, command, fetch_success, |_|{}, None).await;
     }
 
+    #[async_std::test]
+    async fn test_cannot_fetch_if_unselected() {
+        let handler = FetchHandler {};
+        let command = Command::new("a1", "FETCH", vec!["1"]);
+        let ctx = Context::of(Some(User::new("username", "password")), None);
+        test_handle(handler, command, |response| {
+            assert_eq!(response.len(), 1 as usize);
+            assert_eq!(response[0], Response::new("a1", ResponseStatus::NO, "cannot FETCH before SELECT. Please SELECT a folder."))
+        }, |_|{}, Some(ctx)).await;
+    }
+
+    #[async_std::test]
+    async fn test_cannot_fetch_if_unauthenticated() {
+        let handler = FetchHandler {};
+        let command = Command::new("a1", "FETCH", vec!["1"]);
+        let ctx = Context::of(None, Some(PathBuf::from("/this/is/a/folder")));
+        test_handle(handler, command, |response| {
+            assert_eq!(response.len(), 1 as usize);
+            assert_eq!(response[0], Response::new("a1", ResponseStatus::NO, "cannot FETCH when un-authenticated. Please authenticate using LOGIN or AUTHENTICATE."))
+        }, |_|{}, Some(ctx)).await;
+    }
+
     fn fetch_success(response: Vec<Response>) {
         assert_eq!(
             response,
@@ -112,7 +138,7 @@ mod tests {
                 Response::from("* 1 FETCH (BODY[TEXT] {26}\r\nThis is a test email body.)")
                     .unwrap(),
                 Response::new(
-                    "a1".to_string(),
+                    "a1",
                     ResponseStatus::OK,
                     "FETCH completed."
                 )
