@@ -36,6 +36,7 @@ use crate::auth::{AuthRequest, UserStore, Authenticate, AuthenticationPrincipal}
 use crate::connection::{Connection, Request};
 use crate::handlers::login::LoginHandler;
 use crate::handlers::Handle;
+use crate::handlers::select::SelectHandler;
 use crate::util::{Receiver, Result, Sender};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -266,9 +267,13 @@ impl Server {
             .backpressure(self.config.server.max_connections);
         
         let (authenticator, auth_loop) = self.init_auth();
+        let mut handlers: Vec<Box<dyn Handle + Send + Sync>> = Vec::new();
         let login = LoginHandler::new(authenticator);
 
-        let handlers = self.start_handlers(vec![login]);
+        handlers.push(Box::new(login));
+        handlers.push(Box::new(SelectHandler{}));
+
+        let handlers = self.start_handlers(handlers);
 
         sender.send(())?;
         drop(sender);
@@ -293,7 +298,7 @@ impl Server {
         Ok(())
     }
 
-    fn start_handlers<T: Handle + Send + Sync + 'static>(&mut self, handlers: Vec<T>) -> Vec<JoinHandle<Result<()>>> {
+    fn start_handlers(&mut self, handlers: Vec<Box<dyn Handle + Send + Sync>>) -> Vec<JoinHandle<Result<()>>> {
         handlers.into_iter().map(|mut handler| {
             let (requests, receiver): (Sender<Request>, Receiver<Request>) = unbounded();
             let cmd = handler.command();
