@@ -82,7 +82,7 @@ pub mod tests {
     use async_std::{task::spawn, stream::StreamExt};
     use futures::{channel::mpsc::{self, unbounded, UnboundedSender, UnboundedReceiver}, SinkExt};
 
-    use crate::{connection::{Request, Context}, server::{Response, Command}};
+    use crate::{connection::{Request, Context, Event}, server::{Response, Command}};
 
     use super::Handle;
 
@@ -98,10 +98,15 @@ pub mod tests {
             UnboundedSender<Vec<Response>>,
             UnboundedReceiver<Vec<Response>>,
         ) = unbounded();
+        let (events, mut _event_handler): (
+            UnboundedSender<Event>,
+            UnboundedReceiver<Event>,
+        ) = unbounded();
         let login_request = Request {
             command,
             responder,
-            context: Context {},
+            context: Context::default(),
+            events,
         };
         requests.send(login_request).await.unwrap();
         if let Some(response) = responses.next().await {
