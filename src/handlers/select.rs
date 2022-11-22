@@ -80,9 +80,11 @@ impl Handle for SelectHandler {
 
 #[cfg(test)]
 mod tests {
+    use async_std::path::PathBuf;
+
     use super::SelectHandler;
     use crate::auth::User;
-    use crate::connection::Context;
+    use crate::connection::{Context, Event};
     use crate::handlers::tests::test_handle;
     use crate::handlers::{HandleCommand};
     use crate::server::{Command, ResponseStatus, Response};
@@ -111,7 +113,16 @@ mod tests {
         );
 
         let ctx = Context::of(Some(User::new("username", "password")), None);
-        test_handle(select_handler, command, select_success, |_|{}, Some(ctx)).await;
+        test_handle(select_handler, command, select_success, |event| {
+            match event {
+                Event::SELECT(folder) => {
+                    assert_eq!(folder, PathBuf::from("INBOX"))
+                },
+                Event::AUTH(..) => {
+                    panic!("SELECT command should not send an AUTH event");
+                }
+            }
+        }, Some(ctx)).await;
     }
 
     #[async_std::test]
