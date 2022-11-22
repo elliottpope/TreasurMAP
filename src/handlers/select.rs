@@ -63,6 +63,10 @@ impl Handle for SelectHandler {
                     .await?;
                 continue;
             }
+            if !request.context.is_authenticated() {
+                request.responder.send(vec![Response::new("a1", ResponseStatus::NO, "cannot SELECT when un-authenticated. Please authenticate using LOGIN or AUTHENTICATE.")]).await?;
+                continue;
+            }
             request.responder.send(vec!(
                 Response::from("* 172 EXISTS").unwrap(),
                 Response::from("* OK [UIDVALIDITY 3857529045] UIDs valid").unwrap(),
@@ -138,7 +142,7 @@ mod tests {
         f.take();
         test_handle(select_handler, command, |response| {
             assert_eq!(response.len(), 1);
-            assert_eq!(response[0], Response::new("a1", ResponseStatus::BAD, "cannot SELECT when un-authenticated. Please authenticate using LOGIN or AUTHENTICATE."));
+            assert_eq!(response[0], Response::new("a1", ResponseStatus::NO, "cannot SELECT when un-authenticated. Please authenticate using LOGIN or AUTHENTICATE."));
         }, f, None).await;
     }
 
