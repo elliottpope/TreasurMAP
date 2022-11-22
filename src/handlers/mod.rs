@@ -126,10 +126,15 @@ pub mod tests {
         if let Some(response) = responses.next().await {
             assertions(response);
         }
-        if let Some(func) = event_assertions {
-            match event_handler.next().await {
+        match event_assertions {
+            Some(func) => match event_handler.next().await {
                 Some(event) => func(event),
                 None => panic!("At least one event should have been sent"),
+            },
+            None => {
+                if let Some(_) = event_handler.next().await {
+                    panic!("No event should have been sent.")
+                }
             }
         }
         drop(requests);
