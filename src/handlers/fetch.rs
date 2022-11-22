@@ -64,6 +64,28 @@ impl Handle for FetchHandler {
                     .await?;
                 continue;
             }
+            if !request.context.is_authenticated() {
+                request
+                    .responder
+                    .send(vec![Response::new(
+                        &request.command.tag(),
+                        ResponseStatus::NO,
+                        "cannot FETCH when un-authenticated. Please authenticate using LOGIN or AUTHENTICATE.",
+                    )])
+                    .await?;
+                continue;
+            }
+            if !request.context.is_selected() {
+                request
+                    .responder
+                    .send(vec![Response::new(
+                        &request.command.tag(),
+                        ResponseStatus::NO,
+                        "cannot FETCH before SELECT. Please SELECT a folder.",
+                    )])
+                    .await?;
+                continue;
+            }
             request
                 .responder
                 .send(vec![
