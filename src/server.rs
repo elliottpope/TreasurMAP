@@ -107,9 +107,9 @@ pub struct Response {
 }
 
 impl Response {
-    pub fn new(tag: String, status: ResponseStatus, message: &str) -> Response {
+    pub fn new(tag: &str, status: ResponseStatus, message: &str) -> Response {
         Response {
-            tag,
+            tag: tag.to_string(),
             status: Some(status),
             message: message.to_string(),
         }
