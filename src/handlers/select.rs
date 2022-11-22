@@ -108,7 +108,7 @@ mod tests {
             vec!["INBOX"],
         );
 
-        test_handle(select_handler, command, select_success).await;
+        test_handle(select_handler, command, select_success, |_|{}, None).await;
     }
 
     #[async_std::test]
@@ -123,7 +123,7 @@ mod tests {
         test_handle(select_handler, command, |response| {
             assert_eq!(response.len(), 1);
             assert_eq!(response[0], Response::new("a1".to_string(), ResponseStatus::BAD, "insufficient arguments"));
-        }).await;
+        }, |_|{}, None).await;
     }
 
     fn select_success(response: Vec<Response>) {

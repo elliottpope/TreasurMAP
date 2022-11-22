@@ -79,7 +79,7 @@ mod tests {
     async fn test_can_logout() {
         let handler = LogoutHandler {};
         let command = Command::new("a1", "LOGOUT", vec![]);
-        test_handle(handler, command, logout_success).await;
+        test_handle(handler, command, logout_success, |_|{}, None).await;
     }
 
     fn logout_success(response: Vec<Response>) {

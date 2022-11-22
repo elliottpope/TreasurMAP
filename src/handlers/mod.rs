@@ -1,15 +1,15 @@
-pub mod login;
-pub mod select;
 pub mod fetch;
+pub mod login;
 pub mod logout;
+pub mod select;
 
 use std::sync::Arc;
 
 use async_lock::RwLock;
 
 use crate::connection::Request;
-use crate::util::{Result, Receiver};
 use crate::server::{Command, Response, ResponseStatus};
+use crate::util::{Receiver, Result};
 
 #[async_trait::async_trait]
 pub trait Handle {
@@ -57,11 +57,11 @@ impl HandleCommand for DelegatingCommandHandler {
                 Err(..) => continue,
             }
         }
-        Ok(vec!(Response::new(
+        Ok(vec![Response::new(
             command.tag(),
             ResponseStatus::NO,
             "Command unknown",
-        )))
+        )])
     }
 }
 
@@ -79,14 +79,26 @@ impl DelegatingCommandHandler {
 
 #[cfg(test)]
 pub mod tests {
-    use async_std::{task::spawn, stream::StreamExt};
-    use futures::{channel::mpsc::{self, unbounded, UnboundedSender, UnboundedReceiver}, SinkExt};
+    use async_std::{stream::StreamExt, task::spawn};
+    use futures::{
+        channel::mpsc::{self, unbounded, UnboundedReceiver, UnboundedSender},
+        SinkExt,
+    };
 
-    use crate::{connection::{Request, Context, Event}, server::{Response, Command}};
+    use crate::{
+        connection::{Context, Event, Request},
+        server::{Command, Response},
+    };
 
     use super::Handle;
 
-    pub async fn test_handle<T:Handle + Send + Sync + 'static, F: FnOnce(Vec<Response>)>(mut handler: T, command: Command, assertions: F) {
+    pub async fn test_handle<T: Handle + Send + Sync + 'static, F: FnOnce(Vec<Response>), S: FnOnce(Event)>(
+        mut handler: T,
+        command: Command,
+        assertions: F,
+        event_assertions: S,
+        state: Option<Context>,
+    ) {
         let (mut requests, requests_receiver): (
             mpsc::UnboundedSender<Request>,
             mpsc::UnboundedReceiver<Request>,
@@ -98,19 +110,20 @@ pub mod tests {
             UnboundedSender<Vec<Response>>,
             UnboundedReceiver<Vec<Response>>,
         ) = unbounded();
-        let (events, mut _event_handler): (
-            UnboundedSender<Event>,
-            UnboundedReceiver<Event>,
-        ) = unbounded();
+        let (events, mut event_handler): (UnboundedSender<Event>, UnboundedReceiver<Event>) =
+            unbounded();
         let login_request = Request {
             command,
             responder,
-            context: Context::default(),
+            context: state.unwrap_or_default(),
             events,
         };
         requests.send(login_request).await.unwrap();
         if let Some(response) = responses.next().await {
             assertions(response);
+        }
+        if let Some(event) = event_handler.next().await {
+            event_assertions(event);
         }
         drop(requests);
         handle.await.unwrap();

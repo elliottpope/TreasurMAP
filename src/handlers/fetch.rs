@@ -102,7 +102,7 @@ mod tests {
     async fn test_fetch_handle() {
         let handler = FetchHandler {};
         let command = Command::new("a1", "FETCH", vec!["1"]);
-        test_handle(handler, command, fetch_success).await;
+        test_handle(handler, command, fetch_success, |_|{}, None).await;
     }
 
     fn fetch_success(response: Vec<Response>) {

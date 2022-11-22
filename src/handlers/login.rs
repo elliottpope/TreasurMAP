@@ -134,7 +134,7 @@ mod tests {
         let authenticator = TestAuthenticator {};
         let login_handler = LoginHandler::new(authenticator);
 
-        test_handle(login_handler, command, assertions).await;
+        test_handle(login_handler, command, assertions, |_|{}, None).await;
         
     }
 
