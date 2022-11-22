@@ -1,6 +1,6 @@
 use futures::{SinkExt, StreamExt};
 
-use crate::connection::Request;
+use crate::connection::{Request, Event};
 use crate::handlers::HandleCommand;
 use crate::server::{Command, Response, ResponseStatus};
 use crate::util::{Receiver, Result};
@@ -45,6 +45,7 @@ impl Handle for LogoutHandler {
                     .await?;
                 continue;
             }
+            request.events.send(Event::UNAUTH()).await?;
             request
                 .responder
                 .send(vec![Response::new(
@@ -61,6 +62,7 @@ impl Handle for LogoutHandler {
 #[cfg(test)]
 mod tests {
     use super::LogoutHandler;
+    use crate::connection::Event;
     use crate::handlers::tests::test_handle;
     use crate::handlers::HandleCommand;
     use crate::server::{Command, Response, ResponseStatus};
@@ -80,8 +82,12 @@ mod tests {
         let handler = LogoutHandler {};
         let command = Command::new("a1", "LOGOUT", vec![]);
 
-        let mut f = Some(|_event|{});
-        f.take();
+        let f = Some(|event|{
+            match event {
+                Event::UNAUTH() => {},
+                _ => panic!("LogoutHandler should only send UNAUTH events"),
+            }
+        });
         test_handle(handler, command, logout_success, f, None).await;
     }
 
