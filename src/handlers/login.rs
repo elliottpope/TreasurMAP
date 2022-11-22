@@ -102,7 +102,7 @@ mod tests {
 
     use super::LoginHandler;
     use crate::auth::error::UserDoesNotExist;
-    use crate::auth::{Authenticate, User, AuthenticationPrincipal, Password};
+    use crate::auth::{Authenticate, User, AuthenticationPrincipal};
     use crate::connection::{Context, Request};
     use crate::handlers::{Handle};
     use crate::server::{Command, Response, ResponseStatus};
