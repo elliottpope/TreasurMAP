@@ -11,6 +11,7 @@ use async_std::{
     task::JoinHandle,
 };
 
+use futures::channel::oneshot::{self, channel};
 use futures::{SinkExt, channel::mpsc::unbounded};
 use log::{info, trace};
 
@@ -19,6 +20,7 @@ use crate::server::{Command, Response, ResponseStatus};
 use crate::util::{Result, Receiver, Sender};
 
 pub struct Connection {
+    shutdown: oneshot::Receiver<()>,
     state_manager: Option<JoinHandle<()>>,
     state_updater: Sender<Event>,
     state: Arc<RwLock<Context>>,
@@ -37,6 +39,7 @@ pub struct Context{
 pub enum Event {
     AUTH(User),
     SELECT(PathBuf),
+    UNAUTH(),
 }
 
 impl Context {
@@ -70,6 +73,7 @@ impl Connection {
         let context = Arc::new(RwLock::new(Context::default()));
         let ctx = context.clone();
         let (event_sender, mut event_receiver): (Sender<Event>, Receiver<Event>) = unbounded();
+        let (shutdown_signal, shutdown): (oneshot::Sender<()>, oneshot::Receiver<()>) = channel();
         trace!(
             "Spawning writer thread for connection from {}",
             &stream.peer_addr()?
@@ -87,8 +91,16 @@ impl Connection {
                         lock.current_folder.replace(folder);
                         drop(lock);
                     }
+                    Event::UNAUTH() => {
+                        let mut lock = ctx.write().await;
+                        lock.current_folder.take();
+                        lock.user.take();
+                        drop(lock);
+                        break;
+                    }
                 }
             }
+            shutdown_signal.send(()).unwrap();
         });
         let writer = spawn(async move {
             let mut output = &*output;
@@ -123,6 +135,7 @@ impl Connection {
             writer: Some(writer),
             stream,
             responder: response_sender,
+            shutdown,
         })
     }
 
@@ -130,6 +143,20 @@ impl Connection {
         let input = BufReader::new(&*self.stream);
         let mut lines = input.lines();
         while let Some(line) = lines.next().await {
+            let shutdown = match self.shutdown.try_recv() {
+                Ok(signal) => {
+                    match signal {
+                        Some(..) => true,
+                        None => false,
+                    }
+                },
+                Err(..) => {
+                    true
+                }
+            };
+            if shutdown {
+                break;
+            }
             let line = line?;
             trace!(
                 "Read {} from client at {}",
