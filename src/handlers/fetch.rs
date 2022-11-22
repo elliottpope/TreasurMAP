@@ -48,9 +48,9 @@ mod tests {
     async fn test_fetch_success() {
         let fetch_handler = FetchHandler{};
         let fetch_command = Command::new(
-            "a1".to_string(),
-            "FETCH".to_string(),
-            vec!["1".to_string()],
+            "a1",
+            "FETCH",
+            vec!["1"],
         );
         let valid = fetch_handler.validate(&fetch_command).await;
         assert_eq!(valid.is_ok(), true);

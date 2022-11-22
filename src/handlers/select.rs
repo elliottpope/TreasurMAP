@@ -52,9 +52,9 @@ mod tests {
     async fn test_can_login() {
         let select_handler = SelectHandler{};
         let select_command = Command::new(
-            "a1".to_string(),
-            "SELECT".to_string(),
-            vec!["INBOX".to_string()],
+            "a1",
+            "SELECT",
+            vec!["INBOX"],
         );
         let valid = select_handler.validate(&select_command).await;
         assert_eq!(valid.is_ok(), true);

@@ -34,8 +34,8 @@ mod tests {
     async fn test_can_login() {
         let logout_handler = LogoutHandler{};
         let logout_command = Command::new(
-            "a1".to_string(),
-            "LOGOUT".to_string(),
+            "a1",
+            "LOGOUT",
             vec![],
         );
         let valid = logout_handler.validate(&logout_command).await;

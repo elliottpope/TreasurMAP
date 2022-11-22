@@ -59,12 +59,16 @@ impl<T: Authenticate + Send + Sync, 'a> Handle for LoginHandler<T> {
                         "insufficient arguments".to_string(),
                     )])
                     .await?;
+                continue;
             }
             let mut user = request.command.arg(0);
             let password = &request.command.arg(1);
             user = user.replace("\"", "");
             // TODO: handle password hashing error
-            let response = self.authenticator.authenticate(BasicAuth::from(&user, &password)).await;
+            let response = self
+                .authenticator
+                .authenticate(BasicAuth::from(&user, &password))
+                .await;
             match response.await? {
                 Ok(result) => {
                     request
@@ -102,21 +106,30 @@ mod tests {
 
     use super::LoginHandler;
     use crate::auth::error::UserDoesNotExist;
-    use crate::auth::{Authenticate, User, AuthenticationPrincipal};
+    use crate::auth::{Authenticate, AuthenticationPrincipal, User};
     use crate::connection::{Context, Request};
-    use crate::handlers::{Handle};
+    use crate::handlers::Handle;
     use crate::server::{Command, Response, ResponseStatus};
     use crate::util::Result;
+
+    const EMAIL: &str = "my@email.com";
 
     struct TestAuthenticator {}
     #[async_trait::async_trait]
     impl Authenticate for TestAuthenticator {
-        async fn authenticate<T:AuthenticationPrincipal + Send + Sync>(&mut self, user: T) -> Receiver<Result<User>> {
+        async fn authenticate<T: AuthenticationPrincipal + Send + Sync>(
+            &mut self,
+            user: T,
+        ) -> Receiver<Result<User>> {
             let (sender, receiver): (Sender<Result<User>>, Receiver<Result<User>>) = channel();
-            if user.principal() == "my@email.com" {
-                sender.send(Ok(User::new(&user.principal(), "password"))).unwrap();
+            if user.principal() == EMAIL {
+                sender
+                    .send(Ok(User::new(&user.principal(), "password")))
+                    .unwrap();
             } else {
-                sender.send(Err(UserDoesNotExist::new(&user.principal()))).unwrap();
+                sender
+                    .send(Err(UserDoesNotExist::new(&user.principal())))
+                    .unwrap();
             }
             receiver
         }
@@ -153,9 +166,9 @@ mod tests {
     #[async_std::test]
     async fn test_can_login() {
         let login_command = Command::new(
-            "a1".to_string(),
-            "LOGIN".to_string(),
-            vec!["my@email.com".to_string(), "password".to_string()],
+            "a1",
+            "LOGIN",
+            vec![EMAIL, "password"],
         );
         test_login(login_command, login_success).await;
     }
@@ -163,9 +176,9 @@ mod tests {
     #[async_std::test]
     async fn test_login_success_command_lower_case() {
         let login_command = Command::new(
-            "a1".to_string(),
-            "login".to_string(),
-            vec!["my@email.com".to_string(), "password".to_string()],
+            "a1",
+            "login",
+            vec![EMAIL, "password"],
         );
         test_login(login_command, login_success).await;
     }
@@ -173,9 +186,9 @@ mod tests {
     #[async_std::test]
     async fn test_login_success_command_camel_case() {
         let login_command = Command::new(
-            "a1".to_string(),
-            "Login".to_string(),
-            vec!["my@email.com".to_string(), "password".to_string()],
+            "a1",
+            "Login",
+            vec![EMAIL, "password"],
         );
         test_login(login_command, login_success).await;
     }
@@ -194,13 +207,35 @@ mod tests {
     }
 
     #[async_std::test]
-    async fn test_login_bad_creds() {
+    async fn test_login_bad_user() {
         let login_command = Command::new(
-            "a1".to_string(),
-            "LOGIN".to_string(),
-            vec!["not.a.user@domain.com".to_string(), "password".to_string()],
+            "a1",
+            "LOGIN",
+            vec!["not.a.user@domain.com", "password"],
         );
         test_login(login_command, login_failed).await;
+    }
+
+    #[async_std::test]
+    async fn test_login_insufficient_args() {
+        let login_command = Command::new(
+            "a1",
+            "LOGIN",
+            vec![EMAIL],
+        );
+        test_login(login_command, |response| {
+            assert_eq!(response.len(), 1 as usize);
+            let reply = &response[0];
+            assert_eq!(
+                reply,
+                &Response::new(
+                    "a1".to_string(),
+                    ResponseStatus::BAD,
+                    "insufficient arguments".to_string()
+                )
+            );
+        })
+        .await;
     }
 
     fn login_failed(response: Vec<Response>) {
