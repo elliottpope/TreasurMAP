@@ -142,8 +142,8 @@ mod tests {
                 Event::AUTH(user) => {
                     assert_eq!(user.name(), EMAIL);
                 },
-                Event::SELECT(..) => {
-                    panic!("SELECT event should not be sent by LoginHandler")
+                _ => {
+                    panic!("LoginHandler should only send AUTH events")
                 }
             }
         });

@@ -125,9 +125,10 @@ mod tests {
                 Event::SELECT(folder) => {
                     assert_eq!(folder, PathBuf::from("INBOX"))
                 },
-                Event::AUTH(..) => {
-                    panic!("SELECT command should not send an AUTH event");
-                }
+                _ => {
+                    panic!("SELECT command should only send SELECT events");
+                },
+                
             }
         }), Some(ctx)).await;
     }
