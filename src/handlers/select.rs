@@ -8,9 +8,10 @@
 //  S: * LIST () "/" INBOX
 //  S: A142 OK [READ-WRITE] SELECT completed
 
+use async_std::path::PathBuf;
 use futures::{StreamExt, SinkExt};
 
-use crate::connection::Request;
+use crate::connection::{Request, Event};
 use crate::handlers::{HandleCommand};
 use crate::server::{Command, Response, ResponseStatus, ParseError};
 use crate::util::{Result, Receiver};
@@ -67,13 +68,15 @@ impl Handle for SelectHandler {
                 request.responder.send(vec![Response::new("a1", ResponseStatus::NO, "cannot SELECT when un-authenticated. Please authenticate using LOGIN or AUTHENTICATE.")]).await?;
                 continue;
             }
+            let folder = request.command.arg(0);
+            request.events.send(Event::SELECT(PathBuf::from(folder.clone()))).await?;
             request.responder.send(vec!(
                 Response::from("* 172 EXISTS").unwrap(),
                 Response::from("* OK [UIDVALIDITY 3857529045] UIDs valid").unwrap(),
                 Response::from("* OK [UIDNEXT 4392] Predicted next UID").unwrap(),
                 Response::from("* FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft)").unwrap(),
                 Response::from("* OK [PERMANENTFLAGS (\\Deleted \\Seen \\*)] Limited").unwrap(),
-                Response::from("* LIST () \"/\" INBOX").unwrap(),
+                Response::from(&format!("* LIST () \"/\" {}", folder)).unwrap(),
                 Response::new(&request.command.tag(), ResponseStatus::OK, "[READ-WRITE] SELECT completed."),
             )).await?;
         }
