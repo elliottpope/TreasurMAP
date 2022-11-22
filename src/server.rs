@@ -37,6 +37,7 @@ use crate::connection::{Connection, Request};
 use crate::handlers::fetch::FetchHandler;
 use crate::handlers::login::LoginHandler;
 use crate::handlers::Handle;
+use crate::handlers::logout::LogoutHandler;
 use crate::handlers::select::SelectHandler;
 use crate::util::{Receiver, Result, Sender};
 
@@ -106,11 +107,11 @@ pub struct Response {
 }
 
 impl Response {
-    pub fn new(tag: String, status: ResponseStatus, message: String) -> Response {
+    pub fn new(tag: String, status: ResponseStatus, message: &str) -> Response {
         Response {
             tag,
             status: Some(status),
-            message,
+            message: message.to_string(),
         }
     }
     pub fn from(string: &str) -> std::result::Result<Response, ParseError> {
@@ -274,6 +275,7 @@ impl Server {
         handlers.push(Box::new(login));
         handlers.push(Box::new(SelectHandler{}));
         handlers.push(Box::new(FetchHandler{}));
+        handlers.push(Box::new(LogoutHandler{}));
 
         let handlers = self.start_handlers(handlers);
 
