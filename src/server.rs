@@ -34,6 +34,7 @@ use log::{trace, warn};
 use crate::auth::inmemory::{InMemoryAuthenticator, InMemoryUserStore};
 use crate::auth::{AuthRequest, UserStore, Authenticate, AuthenticationPrincipal};
 use crate::connection::{Connection, Request};
+use crate::handlers::fetch::FetchHandler;
 use crate::handlers::login::LoginHandler;
 use crate::handlers::Handle;
 use crate::handlers::select::SelectHandler;
@@ -272,6 +273,7 @@ impl Server {
 
         handlers.push(Box::new(login));
         handlers.push(Box::new(SelectHandler{}));
+        handlers.push(Box::new(FetchHandler{}));
 
         let handlers = self.start_handlers(handlers);
 

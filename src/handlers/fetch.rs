@@ -10,11 +10,16 @@
 // S: * 4 FETCH ....
 // S: A654 OK FETCH completed
 
-use crate::handlers::HandleCommand;
-use crate::server::{Command, Response, ParseError, ResponseStatus};
-use crate::util::Result;
+use futures::{SinkExt, StreamExt};
 
-pub struct FetchHandler{}
+use crate::connection::Request;
+use crate::handlers::HandleCommand;
+use crate::server::{Command, ParseError, Response, ResponseStatus};
+use crate::util::{Receiver, Result};
+
+use super::Handle;
+
+pub struct FetchHandler {}
 #[async_trait::async_trait]
 impl HandleCommand for FetchHandler {
     fn name<'a>(&self) -> &'a str {
@@ -25,45 +30,93 @@ impl HandleCommand for FetchHandler {
             ()
         }
         if command.num_args() < 1 {
-            return Err(Box::new(ParseError{}))
+            return Err(Box::new(ParseError {}));
         }
         Ok(())
     }
     async fn handle<'a>(&self, command: &'a Command) -> Result<Vec<Response>> {
-        Ok(vec!(
+        Ok(vec![
             Response::from("* 1 FETCH (BODY[TEXT] {26}\r\nThis is a test email body.)").unwrap(),
-            Response::new(command.tag(), ResponseStatus::OK, "FETCH completed.".to_string(),
-        )))
+            Response::new(
+                command.tag(),
+                ResponseStatus::OK,
+                "FETCH completed.".to_string(),
+            ),
+        ])
+    }
+}
+#[async_trait::async_trait]
+impl Handle for FetchHandler {
+    fn command<'a>(&self) -> &'a str {
+        "FETCH"
+    }
+
+    async fn start(&mut self, mut requests: Receiver<Request>) -> Result<()> {
+        while let Some(mut request) = requests.next().await {
+            if let Err(..) = self.validate(&request.command).await {
+                request
+                    .responder
+                    .send(vec![Response::new(
+                        request.command.tag(),
+                        ResponseStatus::BAD,
+                        "insufficient arguments".to_string(),
+                    )])
+                    .await?;
+                continue;
+            }
+            request
+                .responder
+                .send(vec![
+                    Response::from("* 1 FETCH (BODY[TEXT] {26}\r\nThis is a test email body.)")
+                        .unwrap(),
+                    Response::new(
+                        request.command.tag(),
+                        ResponseStatus::OK,
+                        "FETCH completed.".to_string(),
+                    ),
+                ])
+                .await?;
+        }
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::FetchHandler;
+    use crate::handlers::tests::test_handle;
     use crate::handlers::HandleCommand;
     use crate::server::{Command, Response, ResponseStatus};
-    use crate::util::Result;
 
     #[async_std::test]
     async fn test_fetch_success() {
-        let fetch_handler = FetchHandler{};
-        let fetch_command = Command::new(
-            "a1",
-            "FETCH",
-            vec!["1"],
-        );
+        let fetch_handler = FetchHandler {};
+        let fetch_command = Command::new("a1", "FETCH", vec!["1"]);
         let valid = fetch_handler.validate(&fetch_command).await;
         assert_eq!(valid.is_ok(), true);
         let response = fetch_handler.handle(&fetch_command).await;
-        fetch_success(response);
+        fetch_success(response.unwrap());
     }
 
-    fn fetch_success(response: Result<Vec<Response>>) {
-        assert_eq!(response.is_ok(), true);
-        let r = response.unwrap();
-        assert_eq!(r, vec!(
-            Response::from("* 1 FETCH (BODY[TEXT] {26}\r\nThis is a test email body.)").unwrap(),
-            Response::new("a1".to_string(), ResponseStatus::OK, "FETCH completed.".to_string())
-        ));
+    #[async_std::test]
+    async fn test_fetch_handle() {
+        let handler = FetchHandler {};
+        let command = Command::new("a1", "FETCH", vec!["1"]);
+        test_handle(handler, command, fetch_success).await;
+    }
+
+    fn fetch_success(response: Vec<Response>) {
+        assert_eq!(
+            response,
+            vec!(
+                Response::from("* 1 FETCH (BODY[TEXT] {26}\r\nThis is a test email body.)")
+                    .unwrap(),
+                Response::new(
+                    "a1".to_string(),
+                    ResponseStatus::OK,
+                    "FETCH completed.".to_string()
+                )
+            )
+        );
     }
 }
