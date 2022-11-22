@@ -1,7 +1,7 @@
 use futures::{SinkExt, StreamExt};
 
 use crate::auth::{Authenticate, BasicAuth};
-use crate::connection::Request;
+use crate::connection::{Request, Event};
 use crate::handlers::HandleCommand;
 use crate::server::{Command, ParseError, Response, ResponseStatus};
 use crate::util::{Receiver, Result};
@@ -71,12 +71,14 @@ impl<T: Authenticate + Send + Sync, 'a> Handle for LoginHandler<T> {
                 .await;
             match response.await? {
                 Ok(result) => {
+                    let message = format!("LOGIN completed. Welcome {}.", &result.name());
+                    request.events.send(Event::AUTH(result)).await?;
                     request
                         .responder
                         .send(vec![Response::new(
                             &request.command.tag(),
                             ResponseStatus::OK,
-                            &format!("LOGIN completed. Welcome {}.", &result.name()),
+                            &message,
                         )])
                         .await?;
                 }
