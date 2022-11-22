@@ -98,17 +98,12 @@ impl<T: Authenticate + Send + Sync, 'a> Handle for LoginHandler<T> {
 
 #[cfg(test)]
 mod tests {
-    use async_std::stream::StreamExt;
-    use async_std::task::spawn;
-    use futures::channel::mpsc::{self, unbounded, UnboundedReceiver, UnboundedSender};
     use futures::channel::oneshot::{channel, Receiver, Sender};
-    use futures::SinkExt;
 
     use super::LoginHandler;
     use crate::auth::error::UserDoesNotExist;
     use crate::auth::{Authenticate, AuthenticationPrincipal, User};
-    use crate::connection::{Context, Request};
-    use crate::handlers::Handle;
+    use crate::handlers::tests::test_handle;
     use crate::server::{Command, Response, ResponseStatus};
     use crate::util::Result;
 
@@ -137,30 +132,10 @@ mod tests {
 
     async fn test_login<F: FnOnce(Vec<Response>)>(command: Command, assertions: F) {
         let authenticator = TestAuthenticator {};
+        let login_handler = LoginHandler::new(authenticator);
 
-        let (mut requests, requests_receiver): (
-            mpsc::UnboundedSender<Request>,
-            mpsc::UnboundedReceiver<Request>,
-        ) = unbounded();
-
-        let mut login_handler = LoginHandler::new(authenticator);
-        let handle = spawn(async move { login_handler.start(requests_receiver).await });
-
-        let (responder, mut responses): (
-            UnboundedSender<Vec<Response>>,
-            UnboundedReceiver<Vec<Response>>,
-        ) = unbounded();
-        let login_request = Request {
-            command,
-            responder,
-            context: Context {},
-        };
-        requests.send(login_request).await.unwrap();
-        if let Some(response) = responses.next().await {
-            assertions(response);
-        }
-        drop(requests);
-        handle.await.unwrap();
+        test_handle(login_handler, command, assertions).await;
+        
     }
 
     #[async_std::test]

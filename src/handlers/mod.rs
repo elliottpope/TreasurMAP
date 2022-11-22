@@ -76,3 +76,38 @@ impl DelegatingCommandHandler {
         write_lock.push(Box::new(handler));
     }
 }
+
+#[cfg(test)]
+pub mod tests {
+    use async_std::{task::spawn, stream::StreamExt};
+    use futures::{channel::mpsc::{self, unbounded, UnboundedSender, UnboundedReceiver}, SinkExt};
+
+    use crate::{connection::{Request, Context}, server::{Response, Command}};
+
+    use super::Handle;
+
+    pub async fn test_handle<T:Handle + Send + Sync + 'static, F: FnOnce(Vec<Response>)>(mut handler: T, command: Command, assertions: F) {
+        let (mut requests, requests_receiver): (
+            mpsc::UnboundedSender<Request>,
+            mpsc::UnboundedReceiver<Request>,
+        ) = unbounded();
+
+        let handle = spawn(async move { handler.start(requests_receiver).await });
+
+        let (responder, mut responses): (
+            UnboundedSender<Vec<Response>>,
+            UnboundedReceiver<Vec<Response>>,
+        ) = unbounded();
+        let login_request = Request {
+            command,
+            responder,
+            context: Context {},
+        };
+        requests.send(login_request).await.unwrap();
+        if let Some(response) = responses.next().await {
+            assertions(response);
+        }
+        drop(requests);
+        handle.await.unwrap();
+    }
+}
