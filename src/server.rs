@@ -32,7 +32,7 @@ use futures::channel::mpsc::unbounded;
 use log::{trace, warn};
 
 use crate::auth::inmemory::{InMemoryAuthenticator, InMemoryUserStore};
-use crate::auth::{AuthRequest, UserStore, Authenticate};
+use crate::auth::{AuthRequest, UserStore, Authenticate, AuthenticationPrincipal};
 use crate::connection::{Connection, Request};
 use crate::handlers::login::LoginHandler;
 use crate::handlers::Handle;
@@ -298,7 +298,7 @@ impl Server {
     fn init_auth(&mut self) -> (impl Authenticate, JoinHandle<Result<()>>) {
         let user_store = self.user_store.clone();
 
-        let (auth_requests, auth_requests_receiver): (Sender<AuthRequest>, Receiver<AuthRequest>) =
+        let (auth_requests, auth_requests_receiver): (Sender<AuthRequest<Box<dyn AuthenticationPrincipal + Send + Sync>>>, Receiver<AuthRequest<Box<dyn AuthenticationPrincipal + Send + Sync>>>) =
             unbounded();
         let authenticator = InMemoryAuthenticator {
             requests: auth_requests,
