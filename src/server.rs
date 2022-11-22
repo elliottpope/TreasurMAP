@@ -295,7 +295,7 @@ impl Server {
         }).collect()
     }
 
-    fn init_auth(&mut self) -> (impl Authenticate, JoinHandle<Result<()>>) {
+    fn init_auth(&self) -> (impl Authenticate, JoinHandle<Result<()>>) {
         let user_store = self.user_store.clone();
 
         let (auth_requests, auth_requests_receiver): (Sender<AuthRequest<Box<dyn AuthenticationPrincipal + Send + Sync>>>, Receiver<AuthRequest<Box<dyn AuthenticationPrincipal + Send + Sync>>>) =
