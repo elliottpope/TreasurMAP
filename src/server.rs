@@ -39,6 +39,8 @@ use crate::handlers::login::LoginHandler;
 use crate::handlers::Handle;
 use crate::handlers::logout::LogoutHandler;
 use crate::handlers::select::SelectHandler;
+use crate::index::{Index, GetMailboxRequest};
+use crate::index::inmemory::InMemoryIndex;
 use crate::util::{Receiver, Result, Sender};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -219,6 +221,7 @@ pub struct Server {
     config: Configuration,
     handler: HashMap<String, Sender<Request>>,
     user_store: Arc<Box<dyn UserStore + Send + Sync>>,
+    index: Arc<Box<dyn Index + Send + Sync>>,
 }
 
 impl Default for Server {
@@ -240,6 +243,7 @@ impl Server {
             config, 
             handler, 
             user_store: Arc::new(Box::new(InMemoryUserStore::new())), 
+            index: Arc::new(Box::new(InMemoryIndex::new())),
         }
     }
 
@@ -271,9 +275,15 @@ impl Server {
         let (authenticator, auth_loop) = self.init_auth();
         let mut handlers: Vec<Box<dyn Handle + Send + Sync>> = Vec::new();
         let login = LoginHandler::new(authenticator);
+        
+        let (mailbox_requests, mailbox_requests_responder): (Sender<GetMailboxRequest>, Receiver<GetMailboxRequest>) = unbounded();
+        let index = self.index.clone();
+        let index_handler = spawn(async move {
+            index.start(mailbox_requests_responder).await
+        });
 
         handlers.push(Box::new(login));
-        handlers.push(Box::new(SelectHandler{}));
+        handlers.push(Box::new(SelectHandler::new(mailbox_requests)));
         handlers.push(Box::new(FetchHandler{}));
         handlers.push(Box::new(LogoutHandler{}));
 
@@ -298,6 +308,7 @@ impl Server {
             handler.await?;
         }
         auth_loop.await?;
+        index_handler.await?;
 
         Ok(())
     }
