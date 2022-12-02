@@ -4,3 +4,4 @@ pub mod util;
 pub mod handlers;
 pub mod auth;
 pub mod index;
+pub mod mailbox;
