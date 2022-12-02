@@ -12,7 +12,7 @@ use self::error::AuthenticationFailed;
 
 #[async_trait::async_trait]
 pub trait Authenticate{
-    async fn authenticate<T: AuthenticationPrincipal + Send + Sync + 'static>(&mut self, user: T) -> Receiver<Result<User>>;
+    async fn authenticate<T: AuthenticationPrincipal + 'static>(&mut self, user: T) -> Receiver<Result<User>>;
 }
 #[async_trait::async_trait]
 pub trait UserStore {
@@ -53,7 +53,7 @@ impl Password {
 }
 
 #[async_trait::async_trait]
-pub trait AuthenticationPrincipal{
+pub trait AuthenticationPrincipal: Send + Sync {
     fn principal(&self) -> String;
     async fn authenticate(&self, user: &User) -> Result<()>;
 }
