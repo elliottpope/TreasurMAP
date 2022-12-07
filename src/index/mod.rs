@@ -69,7 +69,7 @@ impl Display for MailboxError {
 
 #[async_trait::async_trait]
 pub trait Index: Sync + Send {
-    async fn add_mailbox(&mut self, mailbox: Mailbox) -> Result<(), MailboxError>;
+    async fn add_mailbox(&self, mailbox: Mailbox) -> Result<(), MailboxError>;
     async fn get_mailbox(&self, name: &str, permission: Permission) -> Result<Mailbox, MailboxError>;
     async fn start(&self, mut requests: UnboundedReceiver<GetMailboxRequest>) -> crate::util::Result<()> {
         while let Some(request) = requests.next().await {

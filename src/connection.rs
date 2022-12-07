@@ -11,6 +11,7 @@ use async_std::{
     task::JoinHandle,
 };
 
+use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot::{self, channel};
 use futures::{SinkExt, channel::mpsc::unbounded};
 use log::{info, trace};
@@ -139,7 +140,7 @@ impl Connection {
         })
     }
 
-    pub async fn handle(&mut self, handler: &HashMap<String, Sender<Request>>) -> Result<()> {
+    pub async fn handle(mut self, handler: Arc<HashMap<String, UnboundedSender<Request>>>) -> Result<()> {
         let input = BufReader::new(&*self.stream);
         let mut lines = input.lines();
         while let Some(line) = lines.next().await {

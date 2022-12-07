@@ -1,8 +1,7 @@
 use async_std::task;
 use imaprust::util::Result;
-use imaprust::server::Server;
+use imaprust::server::ServerBuilder;
 
 pub(crate) fn main() -> Result<()> {
-    let mut server = Server::default();
-    task::block_on(server.start())
+    task::block_on(ServerBuilder::new().listen())
 }

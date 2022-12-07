@@ -12,7 +12,7 @@ use crate::server::{Command, Response, ResponseStatus};
 use crate::util::{Receiver, Result};
 
 #[async_trait::async_trait]
-pub trait Handle {
+pub trait Handle: Send + Sync {
     fn command<'a>(&self) -> &'a str;
     async fn start<'a>(&'a mut self, requests: Receiver<Request>) -> Result<()>;
 }

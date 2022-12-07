@@ -1,18 +1,20 @@
+use std::sync::Arc;
+
 use futures::{SinkExt, StreamExt};
 
 use crate::auth::{Authenticate, BasicAuth};
-use crate::connection::{Request, Event};
+use crate::connection::{Event, Request};
 use crate::handlers::HandleCommand;
 use crate::server::{Command, ParseError, Response, ResponseStatus};
 use crate::util::{Receiver, Result};
 
 use super::Handle;
 
-pub struct LoginHandler<T: Authenticate> {
-    authenticator: T,
+pub struct LoginHandler {
+    authenticator: Arc<Box<dyn Authenticate>>,
 }
 #[async_trait::async_trait]
-impl<T: Authenticate + Send + Sync> HandleCommand for LoginHandler<T> {
+impl HandleCommand for LoginHandler {
     fn name<'a>(&self) -> &'a str {
         "LOGIN"
     }
@@ -38,13 +40,13 @@ impl<T: Authenticate + Send + Sync> HandleCommand for LoginHandler<T> {
         )])
     }
 }
-impl<T: Authenticate> LoginHandler<T> {
-    pub fn new(authenticator: T) -> Self {
+impl LoginHandler {
+    pub fn new(authenticator: Arc<Box<dyn Authenticate>>) -> Self {
         LoginHandler { authenticator }
     }
 }
 #[async_trait::async_trait]
-impl<T: Authenticate + Send + Sync, 'a> Handle for LoginHandler<T> {
+impl<'a> Handle for LoginHandler {
     fn command<'b>(&self) -> &'b str {
         "LOGIN"
     }
@@ -67,9 +69,9 @@ impl<T: Authenticate + Send + Sync, 'a> Handle for LoginHandler<T> {
             // TODO: handle password hashing error
             let response = self
                 .authenticator
-                .authenticate(BasicAuth::from(&user, &password))
+                .authenticate(Box::new(BasicAuth::from(&user, &password)))
                 .await;
-            match response.await? {
+            match response {
                 Ok(result) => {
                     let message = format!("LOGIN completed. Welcome {}.", &result.name());
                     request.events.send(Event::AUTH(result)).await?;
@@ -100,7 +102,7 @@ impl<T: Authenticate + Send + Sync, 'a> Handle for LoginHandler<T> {
 
 #[cfg(test)]
 mod tests {
-    use futures::channel::oneshot::{channel, Receiver, Sender};
+    use std::sync::Arc;
 
     use super::LoginHandler;
     use crate::auth::error::UserDoesNotExist;
@@ -115,72 +117,51 @@ mod tests {
     struct TestAuthenticator {}
     #[async_trait::async_trait]
     impl Authenticate for TestAuthenticator {
-        async fn authenticate<T: AuthenticationPrincipal + Send + Sync>(
-            &mut self,
-            user: T,
-        ) -> Receiver<Result<User>> {
-            let (sender, receiver): (Sender<Result<User>>, Receiver<Result<User>>) = channel();
+        async fn authenticate(&self, user: Box<dyn AuthenticationPrincipal>) -> Result<User> {
             if user.principal() == EMAIL {
-                sender
-                    .send(Ok(User::new(&user.principal(), "password")))
-                    .unwrap();
-            } else {
-                sender
-                    .send(Err(UserDoesNotExist::new(&user.principal())))
-                    .unwrap();
+                return Ok(User::new(&user.principal(), "password"));
             }
-            receiver
+            return Err(UserDoesNotExist::new(&user.principal()));
         }
     }
 
-    async fn test_login<F: FnOnce(Vec<Response>)>(command: Command, assertions: F, should_auth: bool) {
-        let authenticator = TestAuthenticator {};
+    async fn test_login<F: FnOnce(Vec<Response>)>(
+        command: Command,
+        assertions: F,
+        should_auth: bool,
+    ) {
+        let authenticator: Arc<Box<dyn Authenticate>> = Arc::new(Box::new(TestAuthenticator {}));
         let login_handler = LoginHandler::new(authenticator);
 
-        let mut event_assertions = Some(|event| {
-            match event {
-                Event::AUTH(user) => {
-                    assert_eq!(user.name(), EMAIL);
-                },
-                _ => {
-                    panic!("LoginHandler should only send AUTH events")
-                }
+        let mut event_assertions = Some(|event| match event {
+            Event::AUTH(user) => {
+                assert_eq!(user.name(), EMAIL);
+            }
+            _ => {
+                panic!("LoginHandler should only send AUTH events")
             }
         });
         if !should_auth {
             event_assertions.take();
         }
         test_handle(login_handler, command, assertions, event_assertions, None).await;
-        
     }
 
     #[async_std::test]
     async fn test_can_login() {
-        let login_command = Command::new(
-            "a1",
-            "LOGIN",
-            vec![EMAIL, "password"],
-        );
+        let login_command = Command::new("a1", "LOGIN", vec![EMAIL, "password"]);
         test_login(login_command, login_success, true).await;
     }
 
     #[async_std::test]
     async fn test_login_success_command_lower_case() {
-        let login_command = Command::new(
-            "a1",
-            "login",
-            vec![EMAIL, "password"],
-        );
+        let login_command = Command::new("a1", "login", vec![EMAIL, "password"]);
         test_login(login_command, login_success, true).await;
     }
 
     #[async_std::test]
     async fn test_login_success_command_camel_case() {
-        let login_command = Command::new(
-            "a1",
-            "Login",
-            vec![EMAIL, "password"],
-        );
+        let login_command = Command::new("a1", "Login", vec![EMAIL, "password"]);
         test_login(login_command, login_success, true).await;
     }
 
@@ -199,33 +180,25 @@ mod tests {
 
     #[async_std::test]
     async fn test_login_bad_user() {
-        let login_command = Command::new(
-            "a1",
-            "LOGIN",
-            vec!["not.a.user@domain.com", "password"],
-        );
+        let login_command = Command::new("a1", "LOGIN", vec!["not.a.user@domain.com", "password"]);
         test_login(login_command, login_failed, false).await;
     }
 
     #[async_std::test]
     async fn test_login_insufficient_args() {
-        let login_command = Command::new(
-            "a1",
-            "LOGIN",
-            vec![EMAIL],
-        );
-        test_login(login_command, |response| {
-            assert_eq!(response.len(), 1 as usize);
-            let reply = &response[0];
-            assert_eq!(
-                reply,
-                &Response::new(
-                    "a1",
-                    ResponseStatus::BAD,
-                    "insufficient arguments"
-                )
-            );
-        }, false)
+        let login_command = Command::new("a1", "LOGIN", vec![EMAIL]);
+        test_login(
+            login_command,
+            |response| {
+                assert_eq!(response.len(), 1 as usize);
+                let reply = &response[0];
+                assert_eq!(
+                    reply,
+                    &Response::new("a1", ResponseStatus::BAD, "insufficient arguments")
+                );
+            },
+            false,
+        )
         .await;
     }
 
@@ -234,11 +207,7 @@ mod tests {
         let reply = &response[0];
         assert_eq!(
             reply,
-            &Response::new(
-                "a1",
-                ResponseStatus::BAD,
-                "LOGIN failed."
-            )
+            &Response::new("a1", ResponseStatus::BAD, "LOGIN failed.")
         );
     }
 }

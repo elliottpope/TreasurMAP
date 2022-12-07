@@ -16,10 +16,10 @@
 
 // server.start()
 
+use std::any::Any;
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::sync::mpsc::{self, channel};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -27,21 +27,20 @@ use async_listen::{error_hint, ListenExt};
 use async_std::net::TcpListener;
 use async_std::prelude::*;
 use async_std::task::{spawn, JoinHandle};
-
 use futures::channel::mpsc::unbounded;
-use log::{trace, warn};
+use futures::future::join_all;
+use log::{info, trace, warn};
 
-use crate::auth::inmemory::{InMemoryAuthenticator, InMemoryUserStore};
-use crate::auth::{AuthRequest, UserStore, Authenticate, AuthenticationPrincipal};
+use crate::auth::inmemory::{InMemoryUserStore, InMemoryAuthenticator};
+use crate::auth::{UserStore, Authenticate};
 use crate::connection::{Connection, Request};
+use crate::handlers::Handle;
 use crate::handlers::fetch::FetchHandler;
 use crate::handlers::login::LoginHandler;
-use crate::handlers::Handle;
 use crate::handlers::logout::LogoutHandler;
 use crate::handlers::select::SelectHandler;
-use crate::index::{Index, GetMailboxRequest};
 use crate::index::inmemory::InMemoryIndex;
-use crate::mailbox::{Mailboxes, IndexRequest, RequestHandler};
+use crate::index::Index;
 use crate::util::{Receiver, Result, Sender};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -175,13 +174,18 @@ impl Command {
             Some(c) => c,
             None => return Err(ParseError {}),
         };
-        values = values.iter().map(|arg| {
-            let length = arg.len();
-            if arg.starts_with("\"") && arg.ends_with("\"") || arg.starts_with("'") && arg.ends_with("'") {
-                return arg[1..length-1].to_string()
-            }
-            return arg.to_string()
-        }).collect();
+        values = values
+            .iter()
+            .map(|arg| {
+                let length = arg.len();
+                if arg.starts_with("\"") && arg.ends_with("\"")
+                    || arg.starts_with("'") && arg.ends_with("'")
+                {
+                    return arg[1..length - 1].to_string();
+                }
+                return arg.to_string();
+            })
+            .collect();
         Ok(Command {
             tag,
             command,
@@ -220,48 +224,18 @@ impl Default for Configuration {
 
 pub struct Server {
     config: Configuration,
-    handler: HashMap<String, Sender<Request>>,
-    user_store: Arc<Box<dyn UserStore + Send + Sync>>,
-    index: Arc<Box<dyn Index>>,
-}
-
-impl Default for Server {
-    fn default() -> Server {
-        let config = Configuration::default(); // TODO: add the new, from_env, and from_file options to override configs
-        let handler: HashMap<String, Sender<Request>> = HashMap::new();
-        Server::new(config, handler)
-    }
+    listener: TcpListener,
+    handler: Arc<HashMap<String, Sender<Request>>>,
+    _user_store: Arc<Box<dyn UserStore>>,
+    _index: Arc<Box<dyn Index>>,
+    handler_tasks: Vec<JoinHandle<Result<()>>>,
 }
 
 impl Server {
-    pub async fn start(&mut self) -> Result<()> {
-        let (sender, _receiver) = channel();
-        self.start_with_notification(sender).await
-    }
-
-    pub fn new(config: Configuration, handler: HashMap<String, Sender<Request>>) -> Self {
-        Server { 
-            config, 
-            handler, 
-            user_store: Arc::new(Box::new(InMemoryUserStore::new())), 
-            index: Arc::new(Box::new(InMemoryIndex::new())),
-        }
-    }
-
-    pub fn with_user_store<T:UserStore + Send + Sync + 'static>(mut self, user_store: T) -> Self {
-        self.user_store = Arc::new(Box::new(user_store));
-        self
-    }
-
-    pub async fn start_with_notification(&mut self, sender: mpsc::Sender<()>) -> Result<()> {
+    pub async fn listen(self) -> Result<()> {
         trace!("Server starting on {}", &self.config.server.address);
-        let listener = TcpListener::bind(&self.config.server.address).await?;
-
-        trace!(
-            "Listening for connections on {}",
-            &self.config.server.address
-        );
-        let mut incoming = listener
+        let mut incoming = self
+            .listener
             .incoming()
             .log_warnings(|e| {
                 warn!(
@@ -272,70 +246,129 @@ impl Server {
             })
             .handle_errors(self.config.server.error_timeout)
             .backpressure(self.config.server.max_connections);
-        
-        let (authenticator, auth_loop) = self.init_auth();
-        let mut handlers: Vec<Box<dyn Handle + Send + Sync>> = Vec::new();
-        let login = LoginHandler::new(authenticator);
-        
-        let (index_requests, _): (Sender<IndexRequest>, Receiver<IndexRequest>) = unbounded();
-        let mut mailboxes = Mailboxes::new(index_requests);
-        let mailbox_requests = mailboxes.requests();
-        let mailboxes_handler = spawn(async move {
-            mailboxes.start().await
-        });
+        info!(
+            "Server started listening on {}",
+            &self.config.server.address
+        );
 
-        handlers.push(Box::new(login));
-        handlers.push(Box::new(SelectHandler::new(mailbox_requests)));
-        handlers.push(Box::new(FetchHandler{}));
-        handlers.push(Box::new(LogoutHandler{}));
-
-        let handlers = self.start_handlers(handlers);
-
-        sender.send(())?;
-        drop(sender);
+        let mut connections = vec![];
         while let Some((token, socket)) = incoming.next().await {
             trace!("New connection from {}", &socket.peer_addr()?);
             let handler = self.handler.clone();
-            spawn(async move {
+            connections.push(spawn(async move {
                 let _holder = token;
                 trace!(
                     "Spawning handler for new connection from {}",
                     &socket.peer_addr()?
                 );
-                let mut connection = Connection::new(socket).await?;
-                connection.handle(&handler).await
-            });
+                let connection = Connection::new(socket).await?;
+                connection.handle(handler).await
+            }));
         }
-        for handler in handlers {
-            handler.await?;
-        }
-        auth_loop.await?;
-        mailboxes_handler.await?;
-
+        join_all(connections).await;
+        join_all(self.handler_tasks).await;
         Ok(())
     }
+}
 
-    fn start_handlers(&mut self, handlers: Vec<Box<dyn Handle + Send + Sync>>) -> Vec<JoinHandle<Result<()>>> {
-        handlers.into_iter().map(|mut handler| {
-            let (requests, receiver): (Sender<Request>, Receiver<Request>) = unbounded();
-            let cmd = handler.command();
-            self.handler.insert(cmd.to_string(), requests);
-            spawn(async move { handler.start(receiver).await })
-        }).collect()
+pub struct ServerBuilder {
+    user_store: Option<Box<dyn UserStore>>,
+    // TODO: replace with DataStore trait
+    data_store: Option<Box<dyn Any>>,
+    index: Option<Box<dyn Index>>,
+    // TODO: replace with Middleware trait
+    middleware: Vec<Box<dyn Any>>,
+    handlers: HashMap<String, Box<dyn Handle>>,
+    authenticator: Option<Box<dyn Authenticate>>,
+    configuration: Option<Configuration>,
+}
+
+impl ServerBuilder {
+    #[must_use]
+    pub fn new() -> Self {
+        ServerBuilder {
+            user_store: None,
+            data_store: None,
+            index: None,
+            middleware: vec![],
+            handlers: HashMap::new(),
+            authenticator: None,
+            configuration: None,
+        }
     }
+    pub fn with_user_store<U: UserStore + 'static>(mut self, user_store: U) -> Self {
+        self.user_store.replace(Box::new(user_store));
+        self
+    }
+    // TODO: replace with DataStore trait
+    pub fn with_data_store<D: Any>(mut self, data_store: D) -> Self {
+        self.data_store.replace(Box::new(data_store));
+        self
+    }
+    pub fn with_index<I: Index + 'static>(mut self, index: I) -> Self {
+        self.index.replace(Box::new(index));
+        self
+    }
+    pub fn with_authenticator<A: Authenticate + 'static>(mut self, authenticator: A) -> Self {
+        self.authenticator.replace(Box::new(authenticator));
+        self
+    }
+    // TODO: replace with Middleware trait
+    pub fn with_middleware<M: Any>(mut self, middleware: M) -> Self {
+        self.middleware.push(Box::new(middleware));
+        self
+    }
+    pub fn with_handler<H: Handle + 'static>(mut self, handler: H) -> Self {
+        self.handlers
+            .insert(handler.command().clone().to_string(), Box::new(handler));
+        self
+    }
+    pub fn with_configuration(mut self, configuration: Configuration) -> Self {
+        self.configuration.replace(configuration);
+        self
+    }
+    pub async fn bind(mut self) -> Result<Server> {
+        let configuration = self.configuration.unwrap_or_else(Configuration::default);
+        let listener = TcpListener::bind(&configuration.server.address).await?;
+        
+        let user_store = Arc::new(self.user_store
+                    .unwrap_or_else(|| Box::new(InMemoryUserStore::new())));
+        let index = Arc::new(self.index.unwrap_or_else(|| Box::new(InMemoryIndex::new())));
+        let authenticator = Arc::new(self.authenticator.unwrap_or_else(|| Box::new(InMemoryAuthenticator::new(user_store.clone()))));
+        
+        // TODO: add default Handlers for IMAPv2rev4 spec (i.e. Login, Select, Fetch, Logout, etc.)
+        let select = Box::new(SelectHandler::new(index.clone()));
+        let login: Box<dyn Handle> = Box::new(LoginHandler::new(authenticator));
+        let fetch = Box::new(FetchHandler{});
+        let logout = Box::new(LogoutHandler{});
+        self.handlers.insert("LOGIN".to_string(), login);
+        self.handlers.insert("SELECT".to_string(), select);
+        self.handlers.insert("FETCH".to_string(), fetch);
+        self.handlers.insert("LOGOUT".to_string(), logout);
+        
+        let mut handler_tasks = vec![];
+        let handlers: HashMap<String, Sender<Request>> = self
+            .handlers
+            .drain()
+            .map(|(key, mut handler)| {
+                let (sender, requests): (Sender<Request>, Receiver<Request>) = unbounded();
+                handler_tasks.push(spawn(async move { handler.start(requests).await }));
+                (key, sender)
+            })
+            .collect();
 
-    fn init_auth(&self) -> (impl Authenticate, JoinHandle<Result<()>>) {
-        let user_store = self.user_store.clone();
-
-        let (auth_requests, auth_requests_receiver): (Sender<AuthRequest<Box<dyn AuthenticationPrincipal + Send + Sync>>>, Receiver<AuthRequest<Box<dyn AuthenticationPrincipal + Send + Sync>>>) =
-            unbounded();
-        let authenticator = InMemoryAuthenticator {
-            requests: auth_requests,
-        };
-        let handle = spawn(
-            async move { InMemoryAuthenticator::start(user_store, auth_requests_receiver).await },
-        );
-        return (authenticator, handle)
+        Ok(Server {
+            config: configuration,
+            listener,
+            handler: Arc::new(handlers),
+            handler_tasks,
+            _user_store: user_store,
+            _index: index,
+        })
+    }
+    pub async fn listen(self) -> Result<()> {
+        let server = self.bind().await?;
+        server.listen().await
     }
 }
 
@@ -347,6 +380,9 @@ mod tests {
     fn test_can_strip_quotes_from_command() {
         let cmd = Command::parse("a1 LOGIN 'me@email.com' \"password\"");
         assert!(cmd.is_ok());
-        assert_eq!(cmd.unwrap(), Command::new("a1", "LOGIN", vec!["me@email.com", "password"]));
+        assert_eq!(
+            cmd.unwrap(),
+            Command::new("a1", "LOGIN", vec!["me@email.com", "password"])
+        )
     }
 }

@@ -1,6 +1,29 @@
 use std::{fmt::{Display, Formatter, self}, error::Error};
 
+#[derive(Debug, Clone)]
+pub enum UserStoreError {
+    Exists(String),
+    DoesNotExist(String),
+}
+impl Error for UserStoreError{}
+impl Display for UserStoreError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            UserStoreError::Exists(name) => {
+                write!(f, "user {} already exists", name)
+            },
+            UserStoreError::DoesNotExist(name) => {
+                write!(f, "user {} does not exist", name)
+            },
+        }
+    }
+}
 
+#[derive(Debug, Clone)]
+pub enum AuthenticationError {
+    BadCredentials,
+    Unauthorized,
+}
 
 #[derive(Debug)]
 pub struct UserAlreadyExists {

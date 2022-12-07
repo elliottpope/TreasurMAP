@@ -1,7 +1,7 @@
 pub mod inmemory;
 pub mod error;
 
-use futures::channel::oneshot::{Receiver, Sender};
+use futures::channel::oneshot::Sender;
 
 use bcrypt::{DEFAULT_COST, hash_with_result, BcryptError, verify, Version};
 use log::error;
@@ -11,11 +11,12 @@ use crate::util::Result;
 use self::error::AuthenticationFailed;
 
 #[async_trait::async_trait]
-pub trait Authenticate{
-    async fn authenticate<T: AuthenticationPrincipal + 'static>(&mut self, user: T) -> Receiver<Result<User>>;
+pub trait Authenticate: Send + Sync {
+    async fn authenticate(&self, user: Box<dyn AuthenticationPrincipal>) -> Result<User>;
 }
 #[async_trait::async_trait]
-pub trait UserStore {
+pub trait UserStore: Sync + Send {
+    async fn authenticate(&self, principal: Box<dyn AuthenticationPrincipal>) -> Result<User>;
     async fn get(&self, username: &str) -> Result<Option<&User>>;
     async fn add(&mut self, user: User) -> Result<()>;
 }

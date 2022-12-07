@@ -1,5 +1,5 @@
 use imap;
-use imaprust::{server::Server, auth::inmemory::InMemoryUserStore};
+use imaprust::{server::ServerBuilder, auth::inmemory::InMemoryUserStore};
 
 use std::net::TcpStream;
 
@@ -9,10 +9,15 @@ use async_std::task;
 fn test_can_connect() {
     let (sender, receiver): (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>) = std::sync::mpsc::channel();
 
-    let user_store = InMemoryUserStore::new().with_user("me@example.com", "password");
-    let mut server = Server::default().with_user_store(user_store);
     let server_handle = std::thread::spawn(move || {
-        task::block_on(server.start_with_notification(sender))
+        task::block_on(async {
+    let user_store = InMemoryUserStore::new().with_user("me@example.com", "password");
+            
+            let builder = ServerBuilder::new().with_user_store(user_store);
+            let server = builder.bind().await.unwrap();
+            sender.send(()).unwrap();
+            server.listen().await
+        })
     });
 
     receiver.recv().unwrap();

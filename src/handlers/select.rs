@@ -8,32 +8,29 @@
 //  S: * LIST () "/" INBOX
 //  S: A142 OK [READ-WRITE] SELECT completed
 
-use std::borrow::BorrowMut;
+use std::sync::Arc;
 
 use async_std::path::PathBuf;
-use futures::channel::mpsc::UnboundedSender;
 use futures::{SinkExt, StreamExt};
-use log::error;
 
-use crate::connection::{Event, Request};
+use crate::connection::{Event, self};
 use crate::handlers::HandleCommand;
-use crate::index::Mailbox;
-use crate::mailbox::{self, MailboxRequest};
+use crate::index::{Index, Permission};
 use crate::server::{Command, ParseError, Response, ResponseStatus};
 use crate::util::{Receiver, Result};
 
 use super::Handle;
 
 pub struct SelectHandler {
-    mailbox_requests: Option<UnboundedSender<mailbox::Request<Mailbox, MailboxRequest>>>,
+    index: Arc<Box<dyn Index>>,
 }
 
 impl SelectHandler {
-    pub fn new(
-        mailbox_requests: UnboundedSender<mailbox::Request<Mailbox, MailboxRequest>>,
+    #[must_use]
+    pub fn new(index: Arc<Box<dyn Index>>,
     ) -> Self {
         Self {
-            mailbox_requests: Some(mailbox_requests),
+            index,
         }
     }
 }
@@ -73,7 +70,7 @@ impl Handle for SelectHandler {
     fn command<'b>(&self) -> &'b str {
         "SELECT"
     }
-    async fn start<'b>(&'b mut self, mut requests: Receiver<Request>) -> Result<()> {
+    async fn start<'b>(&'b mut self, mut requests: Receiver<connection::Request>) -> Result<()> {
         while let Some(mut request) = requests.next().await {
             if let Err(..) = self.validate(&request.command).await {
                 request
@@ -91,30 +88,11 @@ impl Handle for SelectHandler {
                 continue;
             }
             let folder = request.command.arg(0);
-
-            let mailbox = if let Some(sender) = self.mailbox_requests.borrow_mut() {
-                let (request, receiver) =
-                    mailbox::Request::new(MailboxRequest::Get(folder.clone()));
-                sender.send(request).await?;
-                match receiver.await {
-                    Ok(result) => match result {
-                        Ok(mailbox) => Some(mailbox),
-                        Err(..) => {
-                            // TODO: parse errors for "insufficient permissions" and "mailbox does not exist"
-                            error!(
-                        "GetMailboxRequest response sender was dropped before sending a response"
-                    );
-                            None
-                        }
-                    },
-                    Err(..) => None
-                }
-            } else {
-                None
-            };
+            
+            let mailbox = self.index.get_mailbox(&folder, Permission::ReadWrite).await;
 
             match mailbox {
-                Some(mailbox) => {
+                Ok(mailbox) => {
                     request
                         .events
                         .send(Event::SELECT(PathBuf::from(folder.clone())))
@@ -140,7 +118,8 @@ impl Handle for SelectHandler {
                         ])
                         .await?;
                 }
-                None => {
+                // TODO: parse MailboxError response
+                Err(..) => {
                     request
                         .responder
                         .send(vec![Response::new(
@@ -152,61 +131,42 @@ impl Handle for SelectHandler {
                 }
             }
         }
-        if let Some(channel) = self.mailbox_requests.take() {
-            drop(channel);
-        }
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use async_std::path::PathBuf;
-    use async_std::task::spawn;
-    use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
-    use futures::channel::oneshot;
 
     use super::SelectHandler;
     use crate::auth::User;
     use crate::connection::{Context, Event};
     use crate::handlers::tests::test_handle;
     use crate::handlers::HandleCommand;
-    use crate::index::{Mailbox, Permission};
-    use crate::mailbox::{self, MailboxRequest, Request, RequestHandler};
+    use crate::index::{Mailbox, Permission, Index, MailboxError};
     use crate::server::{Command, Response, ResponseStatus};
-    use crate::util::Result;
 
     const EXISTING_MAILBOX: &str = "INBOX";
-
-    struct TestMailboxes {
-        receiver: Option<UnboundedReceiver<mailbox::Request<Mailbox, MailboxRequest>>>,
-    }
+    struct TestIndex {}
+    
     #[async_trait::async_trait]
-    impl RequestHandler<Mailbox, MailboxRequest> for TestMailboxes {
-        async fn handle(
-            &mut self,
-            data: MailboxRequest,
-            responder: oneshot::Sender<Result<Mailbox>>,
-        ) -> Result<()> {
-            match data {
-                MailboxRequest::Get(name) => {
-                    if name == EXISTING_MAILBOX {
-                        responder
-                            .send(Ok(Mailbox::new(
+    impl Index for TestIndex {
+        async fn add_mailbox(&self, _: Mailbox) -> Result<(), MailboxError> {
+            panic!("Cannot add new mailboxes")
+        }
+        async fn get_mailbox(&self, name: &str, permission: Permission) -> Result<Mailbox, MailboxError> {
+            if name == EXISTING_MAILBOX {
+                return Ok(Mailbox::new(
                                 EXISTING_MAILBOX,
                                 172,
                                 vec![],
-                                Permission::ReadWrite,
-                            )))
-                            .unwrap();
-                    }
-                    Ok(())
-                }
-                _ => panic!("Cannot handle non Get requests"),
+                                permission,
+                            ))
             }
-        }
-        fn incoming(&mut self) -> UnboundedReceiver<mailbox::Request<Mailbox, MailboxRequest>> {
-            self.receiver.take().unwrap()
+            return Err(MailboxError::DoesNotExist(name.clone().to_string()))
         }
     }
 
@@ -219,31 +179,16 @@ mod tests {
         F: FnOnce(Vec<Response>),
         S: FnOnce(Event),
     {
-        let (sender, receiver): (
-            UnboundedSender<mailbox::Request<Mailbox, MailboxRequest>>,
-            UnboundedReceiver<mailbox::Request<Mailbox, MailboxRequest>>,
-        ) = unbounded();
-
-        let index = spawn(async move {
-            TestMailboxes {
-                receiver: Some(receiver),
-            }
-            .start()
-            .await
-        });
-        let select_handler = SelectHandler::new(sender);
+        let index = TestIndex{};
+        let select_handler = SelectHandler::new(Arc::new(Box::new(index)));
 
         test_handle(select_handler, command, assertions, events, ctx).await;
-        index.await.unwrap();
     }
 
     #[async_std::test]
     pub async fn test_can_select() {
-        let (sender, _receiver): (
-            UnboundedSender<Request<Mailbox, MailboxRequest>>,
-            UnboundedReceiver<Request<Mailbox, MailboxRequest>>,
-        ) = unbounded();
-        let select_handler = SelectHandler::new(sender);
+        let index = TestIndex{};
+        let select_handler = SelectHandler::new(Arc::new(Box::new(index)));
         let select_command = Command::new("a1", "SELECT", vec!["INBOX"]);
         let valid = select_handler.validate(&select_command).await;
         assert_eq!(valid.is_ok(), true);

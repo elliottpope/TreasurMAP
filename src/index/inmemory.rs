@@ -1,15 +1,17 @@
 use std::{collections::HashMap, error::Error, fmt::Display};
 
+use async_lock::RwLock;
+
 use super::{Index, Mailbox, MailboxError, Permission};
 
 pub struct InMemoryIndex {
-    mailboxes: HashMap<String, Mailbox>,
+    mailboxes: RwLock<HashMap<String, Mailbox>>,
 }
 
 impl InMemoryIndex {
     pub fn new() -> Self {
         Self {
-            mailboxes: HashMap::new(),
+            mailboxes: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -27,13 +29,14 @@ impl Display for MailboxDoesNotExist {
 
 #[async_trait::async_trait]
 impl Index for InMemoryIndex {
-    async fn add_mailbox(&mut self, mailbox: Mailbox) -> Result<(), MailboxError> {
-        if let Some(..) = self.mailboxes.get(mailbox.name.to_str().unwrap()) {
+    async fn add_mailbox(&self, mailbox: Mailbox) -> Result<(), MailboxError> {
+        let mut write_lock = self.mailboxes.write().await;
+        if let Some(..) = write_lock.get(mailbox.name.to_str().unwrap()) {
             return Err(MailboxError::Exists(
                 mailbox.name.clone().to_str().unwrap().to_string(),
             ));
         };
-        self.mailboxes.insert(
+        write_lock.insert(
             mailbox
                 .name
                 .to_str()
@@ -53,15 +56,17 @@ impl Index for InMemoryIndex {
         name: &str,
         permission: Permission,
     ) -> Result<Mailbox, MailboxError> {
-        match self.mailboxes.get(name) {
+        let read_lock = self.mailboxes.read().await;
+        match read_lock.get(name) {
             Some(mailbox) => Ok(Mailbox {
                 permission,
                 ..mailbox.clone()
             }),
             None => {
                 if "INBOX".eq_ignore_ascii_case(name) {
-                    // self.add_mailbox(Mailbox::new("INBOX", 0, vec![], Permission::ReadOnly));
-                    return Ok(self.mailboxes.get("INBOX").expect("INBOX has already been inserted so there should be no issue retrieving the inbox from the mailboxes map").clone())
+                    drop(read_lock);
+                    self.add_mailbox(Mailbox::new("INBOX", 0, vec![], Permission::ReadOnly)).await?;
+                    return Ok(self.mailboxes.read().await.get("INBOX").expect("INBOX has already been inserted so there should be no issue retrieving the inbox from the mailboxes map").clone())
                 }
                 Err(MailboxError::DoesNotExist(name.to_string()))
         },
