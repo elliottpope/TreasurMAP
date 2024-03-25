@@ -18,7 +18,7 @@ imap = "2.4.1"
 futures = "0.3.30"
 async-listen = "0.2.1"
 log = "0.4.21"
-async-trait = "0.1.78"
+async-trait = "0.1.79"
 async-lock = "2.8.0"
 bcrypt = "0.15.1"
 
