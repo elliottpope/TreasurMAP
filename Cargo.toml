@@ -20,7 +20,7 @@ async-listen = "0.2.1"
 log = "0.4.27"
 async-trait = "0.1.89"
 async-lock = "3.4.1"
-bcrypt = "0.17.0"
+bcrypt = "0.17.1"
 
 [dependencies.async-std]
 version = "1.13.2"
