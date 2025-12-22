@@ -19,7 +19,7 @@ futures = "0.3.31"
 async-listen = "0.2.1"
 log = "0.4.29"
 async-trait = "0.1.89"
-async-lock = "3.4.1"
+async-lock = "3.4.2"
 bcrypt = "0.17.1"
 
 [dependencies.async-std]
